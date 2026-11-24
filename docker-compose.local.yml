@@ -1,0 +1,39 @@
+# Local-only overrides for docker-compose-dev.yml.
+#
+#   docker compose -f docker-compose-dev.yml -f docker-compose.local.yml up -d
+#
+# api/uv.lock pins the Prowler SDK to an older git revision than the API code
+# in this repository imports from, so the API fails to start with the SDK baked
+# into the image. Mounting the repository's own SDK over it keeps both in step.
+x-local-sdk: &local-sdk
+  - ./api/src/backend:/home/prowler/backend
+  - ./api/pyproject.toml:/home/prowler/pyproject.toml
+  - ./api/docker-entrypoint.sh:/home/prowler/docker-entrypoint.sh
+  - ./_data/api:/home/prowler/.config/prowler-api
+  - outputs:/tmp/prowler_api_output
+  - ./prowler:/home/prowler/.venv/lib/python3.12/site-packages/prowler:ro
+
+x-local-email: &local-email
+  # Alert emails go to Mailpit (http://localhost:8025), never to a real inbox.
+  DJANGO_EMAIL_HOST: mailpit
+  DJANGO_EMAIL_PORT: "1025"
+  DJANGO_EMAIL_USE_TLS: "False"
+  DJANGO_DEFAULT_FROM_EMAIL: prowler-alerts@localhost
+  DJANGO_ALERTS_UI_BASE_URL: http://localhost:3000
+
+services:
+  api-dev:
+    volumes: *local-sdk
+    environment: *local-email
+  worker-dev:
+    volumes: *local-sdk
+    environment: *local-email
+  worker-beat:
+    volumes: *local-sdk
+    environment: *local-email
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
