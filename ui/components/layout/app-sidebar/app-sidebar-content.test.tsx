@@ -72,7 +72,7 @@ describe("AppSidebarContent", () => {
     vi.unstubAllEnvs();
   });
 
-  it("shares the brand, Launch Scan action and Local Server Cloud affordances", async () => {
+  it("shares the brand, Launch Scan action and a working Chat toggle in Local Server", async () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     vi.stubEnv("NEXT_PUBLIC_PROWLER_RELEASE_VERSION", "5.8.0");
@@ -90,12 +90,12 @@ describe("AppSidebarContent", () => {
     );
     expect(screen.getByText("5.8.0")).toBeVisible();
 
+    // Lighthouse AI chat is served by the self-hosted API: no Cloud upsell.
     await user.click(screen.getByRole("button", { name: "Chat" }));
-    expect(openCloudUpgradeMock).toHaveBeenCalledWith(
+    expect(openCloudUpgradeMock).not.toHaveBeenCalledWith(
       CLOUD_UPGRADE_FEATURE.LIGHTHOUSE_AI,
       undefined,
     );
-    expect(screen.getAllByText("Cloud").length).toBeGreaterThan(0);
   });
 
   it("shows Registry navigation when the server marked this request eligible", () => {
@@ -141,15 +141,15 @@ describe("AppSidebarContent", () => {
     ).toEqual(["/realtime"]);
   });
 
-  it("hides Issues navigation in Local Server", () => {
+  it("shows Issues navigation in Local Server", () => {
     // Given / When
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     render(<AppSidebarContent />);
 
     // Then
     expect(
-      screen.queryByRole("link", { name: /Exploitability issues/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("link", { name: /Exploitability issues/ }),
+    ).toBeInTheDocument();
   });
 
   it("hides Registry navigation without a server eligibility decision", () => {

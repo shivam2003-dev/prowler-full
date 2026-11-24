@@ -1,0 +1,1 @@
+Alerts, Scan Configurations, CLI import, Lighthouse AI chat, finding triage, Prowler Realtime, Issues, advanced scan schedules, compliance watchlist and cross-provider views, API keys, S3 integration, SAML additional domains and grouped Jira dispatch are available on Local Server

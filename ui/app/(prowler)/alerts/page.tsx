@@ -1,5 +1,4 @@
 import { BellRing } from "lucide-react";
-import { redirect } from "next/navigation";
 
 import { getLatestMetadataInfo } from "@/actions/findings";
 import { getAllProviders } from "@/actions/providers";
@@ -9,7 +8,6 @@ import { AlertsLighthouseContext } from "@/app/(prowler)/alerts/_components/aler
 import { AlertsManager } from "@/app/(prowler)/alerts/_components/alerts-manager";
 import { ContentLayout } from "@/components/shadcn/content-layout";
 import { createScanDetailsMapping } from "@/lib";
-import { isCloud } from "@/lib/shared/env";
 import type { MetaDataProps, ScanEntity, ScanProps } from "@/types";
 
 interface AlertsPageProps {
@@ -52,10 +50,6 @@ const toAlertsSearchParams = (
 };
 
 export default async function AlertsPage({ searchParams }: AlertsPageProps) {
-  if (!isCloud()) {
-    redirect("/");
-  }
-
   const resolvedSearchParams = await searchParams;
   const editAlertId = getParamValue(resolvedSearchParams, "edit");
   const [result, providersData, scansData, metadataInfoData, editResult] =

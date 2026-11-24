@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -260,7 +260,7 @@ describe("ScansPageShell", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("hides Import Findings in OSS and Local Server", () => {
+  it("shows Import Findings in OSS and Local Server", () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
 
@@ -277,8 +277,8 @@ describe("ScansPageShell", () => {
 
     // Then
     expect(
-      screen.queryByRole("button", { name: /import findings/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /import findings/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows the CLI import banner in Cloud", () => {
@@ -299,7 +299,7 @@ describe("ScansPageShell", () => {
     );
   });
 
-  it("hides the CLI import banner outside Cloud", () => {
+  it("shows the CLI import banner outside Cloud", () => {
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
 
     render(
@@ -308,7 +308,7 @@ describe("ScansPageShell", () => {
       </ScansPageShell>,
     );
 
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
   it("keeps launch scan, import findings, and mutelist with tabs", () => {
@@ -431,7 +431,11 @@ describe("ScansPageShell", () => {
       </ScansPageShell>,
     );
 
-    await user.click(screen.getByRole("button", { name: /close/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /close/i,
+      }),
+    );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // History API (not router.replace) so Next.js does not refetch and reload the page;
@@ -460,7 +464,11 @@ describe("ScansPageShell", () => {
 
     expect(screen.getByRole("dialog")).toHaveTextContent(/launch scan/i);
 
-    await user.click(screen.getByRole("button", { name: /close/i }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /close/i,
+      }),
+    );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();

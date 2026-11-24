@@ -46,6 +46,7 @@ import {
   MultiSelectValue,
 } from "@/components/shadcn/select/multiselect";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { isCloud } from "@/lib/shared/env";
 import type { ScanEntity } from "@/types";
 import type { ProviderProps } from "@/types/providers";
 
@@ -568,16 +569,19 @@ const AlertFormModalContent = ({
             <FieldError>{errors.recipientEmails}</FieldError>
           )}
         </Field>
-        <Field>
-          <SlackChannelsField
-            selectedChannelIds={selectedSlackChannels}
-            storedChannels={editingAlert?.attributes.slack_channels ?? []}
-            onValuesChange={setSelectedSlackChannels}
-          />
-          {errors.slackChannels && (
-            <FieldError>{errors.slackChannels}</FieldError>
-          )}
-        </Field>
+        {/* Slack delivery needs the Slack integration, which is Cloud-only. */}
+        {isCloud() && (
+          <Field>
+            <SlackChannelsField
+              selectedChannelIds={selectedSlackChannels}
+              storedChannels={editingAlert?.attributes.slack_channels ?? []}
+              onValuesChange={setSelectedSlackChannels}
+            />
+            {errors.slackChannels && (
+              <FieldError>{errors.slackChannels}</FieldError>
+            )}
+          </Field>
+        )}
         {editingAlert && (
           <div className="flex flex-col gap-3">
             <Card variant="inner" padding="sm">

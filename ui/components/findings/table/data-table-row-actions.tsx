@@ -21,7 +21,6 @@ import {
   isSampleId,
   SAMPLE_DATA_READ_ONLY_MESSAGE,
 } from "@/lib/sample-preview/sample-guards";
-import { isCloud } from "@/lib/shared/env";
 import { getOptionalText } from "@/lib/utils";
 import type {
   FindingTriageContext,
@@ -337,7 +336,7 @@ export function DataTableRowActions<T extends FindingRowData>({
             target={recheckTarget}
             disabledReason={sampleDisabledReason}
           />
-          {isCloud() && !isGroup && (
+          {!isGroup && (
             <LighthouseSkillsSubmenu
               disabledReason={sampleDisabledReason}
               onLaunch={handleLaunchSkill}

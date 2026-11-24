@@ -48,7 +48,6 @@ import { buildJiraActionLabel } from "@/lib/jira-dispatch-action";
 import { createJiraDispatchPayload } from "@/lib/jira-dispatch-selection";
 import { buildFocusedIssueContext } from "@/lib/lighthouse/context/contributions";
 import { isSampleId } from "@/lib/sample-preview/sample-guards";
-import { isCloud } from "@/lib/shared/env";
 import { SIDE_PANEL_TAB, useSidePanelStore } from "@/store/side-panel";
 import { JIRA_DISPATCH_TARGET } from "@/types/integrations";
 import {
@@ -346,7 +345,7 @@ const IssuePanelContent = ({
           )
         )}
         {/* Same skills rail as the finding panel, offering the issue's skills. */}
-        {isCloud() && !isSampleId(issue.id) && (
+        {!isSampleId(issue.id) && (
           <LighthouseSkillsRail
             surface={LIGHTHOUSE_SKILL_SURFACE.ISSUE}
             onLaunchSkill={(skill) =>

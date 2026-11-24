@@ -52,18 +52,6 @@ beforeEach(() => {
   });
 });
 
-describe("loadComplianceWatchlistContext in OSS", () => {
-  beforeEach(() => isCloudMock.mockReturnValue(false));
-
-  it("returns the empty context without requesting Cloud data", async () => {
-    expect(await loadComplianceWatchlistContext()).toEqual(
-      EMPTY_WATCHLIST_CONTEXT,
-    );
-    expect(getComplianceCatalogMock).not.toHaveBeenCalled();
-    expect(authMock).not.toHaveBeenCalled();
-  });
-});
-
 describe("loadComplianceWatchlistContext in Cloud", () => {
   beforeEach(() => isCloudMock.mockReturnValue(true));
 

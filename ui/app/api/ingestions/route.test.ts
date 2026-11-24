@@ -52,24 +52,6 @@ describe("POST /api/ingestions", () => {
 
   afterAll(() => server.close());
 
-  it("returns not found in OSS and Local Server without authenticating or forwarding the upload", async () => {
-    isCloudMock.mockReturnValue(false);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const request = new Request("http://localhost/api/ingestions", {
-      method: "POST",
-      headers: { "content-type": "multipart/form-data; boundary=report" },
-      body: "--report--",
-    });
-
-    const response = await POST(request);
-
-    expect(response.status).toBe(404);
-    expect(request.body?.locked).toBe(false);
-    expect(getAuthHeadersMock).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it("forwards the original multipart stream and boundary in Cloud", async () => {
     isCloudMock.mockReturnValue(true);
     getAuthHeadersMock.mockResolvedValue({ Authorization: "Bearer token" });

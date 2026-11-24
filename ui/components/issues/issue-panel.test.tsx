@@ -538,8 +538,8 @@ describe("IssuePanel", () => {
     });
   });
 
-  it("offers no Lighthouse skills outside Prowler Cloud", async () => {
-    // Given: a self-hosted install, where Lighthouse does not run
+  it("offers Lighthouse skills on Local Server too", async () => {
+    // Given: Lighthouse AI chat runs against the self-hosted API
     getIssue.mockResolvedValue(detailWith([]));
 
     // When
@@ -550,8 +550,8 @@ describe("IssuePanel", () => {
       await screen.findByRole("tab", { name: "Remediation" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Contextual Fix" }),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: "Contextual Fix" }),
+    ).toBeInTheDocument();
   });
 
   it("offers the fix on an issue with no modelled start or outcome", async () => {

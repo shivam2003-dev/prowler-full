@@ -1,6 +1,5 @@
 import { ArrowLeft, Radar } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { isLighthouseConfigured } from "@/actions/lighthouse-v1";
@@ -38,7 +37,6 @@ import {
 import { initialOpenSection } from "@/app/(prowler)/realtime/_lib/setup";
 import { Button } from "@/components/shadcn";
 import { ContentLayout } from "@/components/shadcn/content-layout";
-import { isCloud } from "@/lib/shared/env";
 
 interface ConfigurationPageProps {
   searchParams: Promise<RealtimeSearchParams>;
@@ -47,7 +45,6 @@ interface ConfigurationPageProps {
 export default async function RealtimeConfigurationPage({
   searchParams,
 }: ConfigurationPageProps) {
-  if (!isCloud()) notFound();
   const params = await searchParams;
 
   return (

@@ -169,7 +169,7 @@ describe("ScanJobsRowActions", () => {
     ).toHaveTextContent("Editing schedule for provider-1");
   });
 
-  it("hides Edit Scan Schedule outside Prowler Cloud (OSS)", async () => {
+  it("shows Edit Scan Schedule on Local Server", async () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     const user = userEvent.setup();
@@ -183,8 +183,8 @@ describe("ScanJobsRowActions", () => {
 
     // Then
     expect(
-      screen.queryByRole("menuitem", { name: /edit scan schedule/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("menuitem", { name: /edit scan schedule/i }),
+    ).toBeInTheDocument();
   });
 
   it("hides Edit Scan Schedule outside the Scheduled tab even on Cloud", async () => {

@@ -583,11 +583,16 @@ describe("LaunchScanModal", () => {
       expect(getScheduleMock).not.toHaveBeenCalled();
     });
 
-    it("preserves legacy daily scheduling outside Cloud", async () => {
+    it("keeps legacy daily scheduling when the capability is DAILY_LEGACY", async () => {
       const user = userEvent.setup();
       scheduleDailyMock.mockResolvedValue({ data: { id: provider.id } });
       render(
-        <LaunchScanModal open onOpenChange={vi.fn()} providers={[provider]} />,
+        <LaunchScanModal
+          open
+          onOpenChange={vi.fn()}
+          providers={[provider]}
+          capability={SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY}
+        />,
       );
 
       expect(

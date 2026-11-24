@@ -16,7 +16,6 @@ import { DOCS_URLS } from "@/lib/external-urls";
 import { getSamplePreviewState } from "@/lib/sample-preview/get-sample-preview-state";
 import { getSampleComplianceTotals } from "@/lib/sample-preview/sample-compliance-requirements";
 import { SAMPLE_PREVIEW_PAGE } from "@/lib/sample-preview/sample-preview-events";
-import { isCloud } from "@/lib/shared/env";
 import { SearchParamsProps } from "@/types";
 
 import { OverviewBanner } from "./_overview/_components/overview-banner";
@@ -74,7 +73,7 @@ export default async function Home({
     getSamplePreviewState(),
     getAllProviders(),
     getAllProviderGroups(),
-    getLighthouseOverviewBannerHref(isCloud(), getLighthouseV2Configurations),
+    getLighthouseOverviewBannerHref(true, getLighthouseV2Configurations),
   ]);
 
   // No completed scan yet: the demo account stands in for the tenant's data.
@@ -87,7 +86,7 @@ export default async function Home({
           page={SAMPLE_PREVIEW_PAGE.OVERVIEW}
         />
         <OverviewSamplePreview
-          showIssues={isCloud()}
+          showIssues
           complianceWatchlist={await getSampleComplianceTotals()}
         />
       </ContentLayout>
@@ -134,11 +133,9 @@ export default async function Home({
           </Suspense>
         }
         exploitability={
-          isCloud() ? (
-            <Suspense fallback={<ExploitabilityChartSkeleton />}>
-              <ExploitabilityChartSSR searchParams={resolvedSearchParams} />
-            </Suspense>
-          ) : undefined
+          <Suspense fallback={<ExploitabilityChartSkeleton />}>
+            <ExploitabilityChartSSR searchParams={resolvedSearchParams} />
+          </Suspense>
         }
         checkFindings={
           <Suspense fallback={<StatusChartSkeleton />}>
@@ -171,11 +168,9 @@ export default async function Home({
           </Suspense>
         }
         topIssues={
-          isCloud() ? (
-            <Suspense fallback={<TopIssuesSkeleton />}>
-              <TopIssuesSSR searchParams={resolvedSearchParams} />
-            </Suspense>
-          ) : undefined
+          <Suspense fallback={<TopIssuesSkeleton />}>
+            <TopIssuesSSR searchParams={resolvedSearchParams} />
+          </Suspense>
         }
         severityOverTime={
           <Suspense fallback={<FindingSeverityOverTimeSkeleton />}>

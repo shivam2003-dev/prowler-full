@@ -190,9 +190,11 @@ export default async function Scans({
   const hasManageScansPermission = Boolean(
     session?.user?.permissions?.manage_scans,
   );
-  const hasManageIngestionsPermission = Boolean(
-    session?.user?.permissions?.manage_ingestions,
-  );
+  // Self-hosted roles have no dedicated ingestion permission: importing a
+  // report creates scans, so it follows Manage Scans there.
+  const hasManageIngestionsPermission = isCloud()
+    ? Boolean(session?.user?.permissions?.manage_ingestions)
+    : hasManageScansPermission;
   const [activeScanCount, reportDownloadLocked] = await Promise.all([
     getActiveScanCount(resolvedSearchParams),
     isReportDownloadLocked(),

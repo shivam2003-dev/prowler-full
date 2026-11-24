@@ -32,7 +32,7 @@ describe("ApiKeysCardClient", () => {
     useCloudUpgradeStore.getState().closeCloudUpgrade();
   });
 
-  it("offers Prowler Cloud instead of creating keys on Local Server", async () => {
+  it("creates keys on Local Server", async () => {
     // Given
     isCloudMock.mockReturnValue(false);
     const user = userEvent.setup();
@@ -42,10 +42,9 @@ describe("ApiKeysCardClient", () => {
     await user.click(screen.getByRole("button", { name: /Create API Key/ }));
 
     // Then
-    expect(useCloudUpgradeStore.getState().activeFeature).toBe(
+    expect(useCloudUpgradeStore.getState().activeFeature).not.toBe(
       CLOUD_UPGRADE_FEATURE.API_KEYS,
     );
-    expect(screen.queryByLabelText(/Expires in/)).not.toBeInTheDocument();
   });
 
   it("opens the create form in Prowler Cloud", async () => {

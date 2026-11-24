@@ -309,8 +309,9 @@ describe("AlertFormModal", () => {
     expect(screen.getByLabelText(/^description$/i)).toBeVisible();
     expect(screen.getByLabelText(/^frequency$/i)).toBeVisible();
     expect(screen.getByLabelText(/^recipients$/i)).toBeVisible();
-    // Frequency, Recipients, and the Slack destination channels trigger.
-    expect(screen.getAllByRole("combobox")).toHaveLength(3);
+    // Frequency and Recipients. The Slack destination channels trigger is
+    // Cloud-only, and tests run as a self-hosted deployment.
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.queryByText("Alert criteria")).not.toBeInTheDocument();
     expect(screen.queryByText(/delivery settings/i)).not.toBeInTheDocument();
     expect(

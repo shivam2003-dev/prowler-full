@@ -1,21 +1,12 @@
-import { isCloud } from "@/lib/shared/env";
-import {
-  FINDING_TRIAGE_DISABLED_REASON,
-  type FindingTriageDisabledReason,
-} from "@/types/findings-triage";
+import type { FindingTriageDisabledReason } from "@/types/findings-triage";
 
 interface FindingTriageAdapterOptions {
   canEdit: boolean;
   disabledReason?: FindingTriageDisabledReason;
 }
 
+// Triage is served by the API in every deployment, Local Server included. The
+// API still enforces who may change it (Manage Scans).
 export function getFindingTriageAdapterOptions(): FindingTriageAdapterOptions {
-  const isCloudEnvironment = isCloud();
-
-  return {
-    canEdit: isCloudEnvironment,
-    ...(isCloudEnvironment
-      ? {}
-      : { disabledReason: FINDING_TRIAGE_DISABLED_REASON.CLOUD_ONLY }),
-  };
+  return { canEdit: true };
 }

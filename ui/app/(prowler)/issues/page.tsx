@@ -1,5 +1,4 @@
 import { ShieldAlert } from "lucide-react";
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { getAllProviderGroups } from "@/actions/manage-groups/manage-groups";
@@ -11,7 +10,6 @@ import { SamplePreviewBanner } from "@/components/shared/sample-preview/sample-p
 import { getSamplePreviewState } from "@/lib/sample-preview/get-sample-preview-state";
 import { SAMPLE_ACCOUNT } from "@/lib/sample-preview/sample-dataset";
 import { SAMPLE_PREVIEW_PAGE } from "@/lib/sample-preview/sample-preview-events";
-import { isCloud } from "@/lib/shared/env";
 import { SearchParamsProps } from "@/types";
 
 import { IssuesList } from "./_components/issues-list";
@@ -25,8 +23,6 @@ export default async function Issues({
 }: {
   searchParams: Promise<SearchParamsProps>;
 }) {
-  if (!isCloud()) notFound();
-
   const resolvedSearchParams = await searchParams;
   const samplePreview = await getSamplePreviewState();
   if (samplePreview.active) {

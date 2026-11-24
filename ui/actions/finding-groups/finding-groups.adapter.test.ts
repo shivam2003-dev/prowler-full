@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  FINDING_TRIAGE_DISABLED_REASON,
+  
   FINDING_TRIAGE_STATUS,
 } from "@/types/findings-triage";
 
@@ -289,7 +289,7 @@ describe("adaptFindingGroupResourcesResponse — malformed input", () => {
     );
   });
 
-  it("should leave triage editing disabled until a real capability is provided", () => {
+  it("should allow triage editing in Local Server", () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     const input = {
@@ -330,12 +330,8 @@ describe("adaptFindingGroupResourcesResponse — malformed input", () => {
     const [row] = adaptFindingGroupResourcesResponse(input, "s3_check");
 
     // Then
-    expect(row.triage).toEqual(
-      expect.objectContaining({
-        canEdit: false,
-        disabledReason: FINDING_TRIAGE_DISABLED_REASON.CLOUD_ONLY,
-      }),
-    );
+    expect(row.triage).toEqual(expect.objectContaining({ canEdit: true }));
+    expect(row.triage).not.toHaveProperty("disabledReason");
   });
 
   it("should return mapped rows for valid data", () => {

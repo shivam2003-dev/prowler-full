@@ -18,18 +18,16 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/shadcn";
-import { Badge } from "@/components/shadcn/badge/badge";
 import { Modal } from "@/components/shadcn/modal";
 import { DataTablePagination } from "@/components/shadcn/table/data-table-pagination";
 import {
   executeIntegrationConnectionTest,
   triggerTestConnectionWithDelay,
 } from "@/lib/integrations/test-connection-helper";
-import { isCloud } from "@/lib/shared/env";
 import { useCloudUpgradeStore } from "@/store";
 import { MetaDataProps } from "@/types";
 import {
-  CLOUD_UPGRADE_FEATURE,
+  
   PAID_PLAN_UPGRADE_FEATURE,
 } from "@/types/cloud-upgrade";
 import { IntegrationProps } from "@/types/integrations";
@@ -67,15 +65,8 @@ export const S3IntegrationsManager = ({
   const openCloudUpgrade = useCloudUpgradeStore(
     (state) => state.openCloudUpgrade,
   );
-  // Adding S3 integrations needs a paid Prowler Cloud plan; everyone else gets the upsell.
-  const canAddIntegrations = isCloud();
-
   const handleAddIntegration = () => {
-    if (!canAddIntegrations) {
-      openCloudUpgrade(CLOUD_UPGRADE_FEATURE.AMAZON_S3);
-      return;
-    }
-
+    // Only a Prowler Cloud plan limit can block this; self-hosted never sets it.
     if (subscriptionOnly) {
       openCloudUpgrade(PAID_PLAN_UPGRADE_FEATURE.S3_INTEGRATION);
       return;
@@ -303,11 +294,6 @@ export const S3IntegrationsManager = ({
               <h3 className="text-lg font-semibold">
                 Configured S3 Integrations
               </h3>
-              {!canAddIntegrations && (
-                <Badge variant="cloud" size="sm">
-                  Cloud
-                </Badge>
-              )}
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-300">
               {integrations.length === 0

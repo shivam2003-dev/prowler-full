@@ -1,7 +1,6 @@
 import { Radar } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CLOUD_UPGRADE_FEATURE } from "@/types/cloud-upgrade";
 import type { RolePermissionAttributes } from "@/types/users";
 
 import {
@@ -52,6 +51,7 @@ describe("getNavigationConfig", () => {
       "Lighthouse AI",
     ]);
     expect(sections[1]?.items.map((item) => item.label)).toEqual([
+      "Exploitability issues",
       "Realtime",
       "Compliance",
       "Findings",
@@ -88,27 +88,28 @@ describe("getNavigationConfig", () => {
       "Integrations",
       "Lighthouse AI",
     ]);
+    // Alerts ships in the self-hosted API, so it is a plain link everywhere.
     expect(children.find((item) => item.label === "Alerts")).toEqual(
       expect.objectContaining({
-        kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-        cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.ALERTS,
+        kind: NAVIGATION_ITEM_KIND.LINK,
+        href: "/alerts",
       }),
     );
     expect(children.find((item) => item.label === "Scans")).toEqual(
       expect.objectContaining({
-        kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-        cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.SCAN_CONFIGURATION,
+        kind: NAVIGATION_ITEM_KIND.LINK,
+        href: "/scans/config",
       }),
     );
     expect(children.find((item) => item.label === "CLI Import")).toEqual(
       expect.objectContaining({
-        kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-        cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.CLI_IMPORT,
+        kind: NAVIGATION_ITEM_KIND.LINK,
+        href: "/scans",
       }),
     );
   });
 
-  it("never shows Issues in Local Server", () => {
+  it("shows Issues in Local Server", () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
 
@@ -121,10 +122,10 @@ describe("getNavigationConfig", () => {
       .map((item) => item.label);
 
     // Then
-    expect(labels).not.toContain("Exploitability issues");
+    expect(labels).toContain("Exploitability issues");
   });
 
-  it("links Realtime in Cloud and offers it as a Cloud upgrade in Local Server", () => {
+  it("links Realtime in Cloud and in Local Server", () => {
     // Given
     const realtime = () =>
       getNavigationConfig({ pathname: "/realtime" })
@@ -141,12 +142,13 @@ describe("getNavigationConfig", () => {
     );
 
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
-    expect(realtime()).toEqual({
-      kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-      label: "Realtime",
-      icon: Radar,
-      cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.REALTIME,
-    });
+    expect(realtime()).toEqual(
+      expect.objectContaining({
+        kind: NAVIGATION_ITEM_KIND.LINK,
+        href: "/realtime",
+        icon: Radar,
+      }),
+    );
   });
 
   it("has one Realtime entry, active on the dashboard and its configuration", () => {

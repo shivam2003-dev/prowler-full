@@ -83,28 +83,3 @@ describe("ComplianceWatchlistSSR in Cloud", () => {
     expect(contexts[1]).toHaveTextContent('"score":30');
   });
 });
-
-describe("ComplianceWatchlistSSR in OSS", () => {
-  beforeEach(() => isCloudMock.mockReturnValue(false));
-
-  it("does not send the Cloud-only watchlist filter", async () => {
-    // The filter is a Cloud addition to a shared endpoint; sending it where it
-    // does not exist is at best ignored and at worst a 400.
-    render(await ComplianceWatchlistSSR({ searchParams: {} }));
-
-    expect(getComplianceWatchlistMock).toHaveBeenCalledWith(
-      expect.objectContaining({ inWatchlist: false }),
-    );
-  });
-
-  it("keeps ThreatScore out of the ranking", async () => {
-    // Unfiltered the card is a ranking of everything, which is what it always
-    // was — and ThreatScore has never belonged in it.
-    render(await ComplianceWatchlistSSR({ searchParams: {} }));
-
-    const contexts = screen.getAllByTestId("watchlist-context");
-    expect(contexts).toHaveLength(2);
-    expect(contexts[0]).toHaveTextContent('"framework":"ENS RD2022"');
-    expect(contexts[1]).toHaveTextContent('"framework":"CIS AWS 1.5"');
-  });
-});

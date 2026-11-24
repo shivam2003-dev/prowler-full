@@ -4,7 +4,6 @@ import {
 } from "@/actions/overview/compliance-watchlist";
 import { LighthouseContextContributor } from "@/components/lighthouse/context-contributor";
 import { buildComplianceContext } from "@/lib/lighthouse/context/contributions";
-import { isCloud } from "@/lib/shared/env";
 
 import { pickFilterParams } from "../_lib/filter-params";
 import { SSRComponentProps } from "../_types";
@@ -17,7 +16,7 @@ export const ComplianceWatchlistSSR = async ({
   searchParams,
 }: SSRComponentProps) => {
   const filters = pickFilterParams(searchParams);
-  const isWatchlistFiltered = isCloud();
+  const isWatchlistFiltered = true;
   const response = await getComplianceWatchlist({
     filters,
     inWatchlist: isWatchlistFiltered,

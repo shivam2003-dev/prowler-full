@@ -41,7 +41,6 @@ import { buildComplianceContext } from "@/lib/lighthouse/context/contributions";
 import { isReportDownloadLocked } from "@/lib/report-download-access";
 import { getSamplePreviewState } from "@/lib/sample-preview/get-sample-preview-state";
 import { isSampleId } from "@/lib/sample-preview/sample-guards";
-import { isCloud } from "@/lib/shared/env";
 import { cn } from "@/lib/utils";
 import type { SearchParamsProps } from "@/types";
 import {
@@ -106,13 +105,8 @@ export default async function ComplianceDetail({
   const subscriptionOnlyPromise = isReportDownloadLocked();
 
   // Cross-provider mode replaces the per-scan pipeline with the universal
-  // roll-up view. Prowler Cloud-only: the OSS API has no such endpoint, so
-  // the route is blocked in OSS the same way the compliance tab is.
+  // roll-up view.
   if (mode === LIGHTHOUSE_COMPLIANCE_CONTEXT_MODE.CROSS_PROVIDER) {
-    if (!isCloud()) {
-      redirect("/compliance");
-    }
-
     const subscriptionOnly = await subscriptionOnlyPromise;
     return (
       <Suspense
@@ -140,12 +134,8 @@ export default async function ComplianceDetail({
     );
   }
   // Cross-account mode: one regular framework aggregated across every
-  // account of one provider type. Cloud-only, like cross-provider.
+  // account of one provider type.
   if (mode === LIGHTHOUSE_COMPLIANCE_CONTEXT_MODE.CROSS_ACCOUNT) {
-    if (!isCloud()) {
-      redirect("/compliance");
-    }
-
     const providerType = getSingleSearchParam(
       resolvedSearchParams.providerType,
     );

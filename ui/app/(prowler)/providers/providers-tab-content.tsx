@@ -10,13 +10,7 @@ import {
 
 import { loadProvidersAccountsViewData } from "./providers-page.utils";
 
-const loadScanConfigs = async (
-  isCloud: boolean,
-): Promise<ScanConfigurationListState> => {
-  if (!isCloud) {
-    return { status: SCAN_CONFIGURATION_LIST_STATUS.AVAILABLE, data: [] };
-  }
-
+const loadScanConfigs = async (): Promise<ScanConfigurationListState> => {
   try {
     return {
       status: SCAN_CONFIGURATION_LIST_STATUS.AVAILABLE,
@@ -39,7 +33,7 @@ export const ProvidersTabContent = async ({
       searchParams,
       isCloud: isCloudEnvironment,
     }),
-    loadScanConfigs(isCloudEnvironment),
+    loadScanConfigs(),
     getSamplePreviewState(),
   ]);
 

@@ -133,18 +133,4 @@ describe("getFindingComplianceFrameworks", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
-
-  it("does not call the API at all off Cloud", async () => {
-    // The endpoint only exists in Cloud, and the drawer asks once per finding
-    // opened — so this is a request that can only ever 404, on every open.
-    isCloudMock.mockReturnValue(false);
-
-    expect(await getFindingComplianceFrameworks("finding-1")).toEqual({
-      frameworks: [],
-      // `unavailable`, so the caller still falls back to the check's own
-      // framework names instead of dropping the strip.
-      unavailable: true,
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });

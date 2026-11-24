@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { apiBaseUrl, getAuthHeaders } from "@/lib";
 import { parseIngestion } from "@/lib/ingestions";
-import { isCloud } from "@/lib/shared/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,8 +19,6 @@ export async function GET(
   _request: Request,
   { params }: IngestionRouteContext,
 ) {
-  if (!isCloud()) return new Response(null, { status: 404 });
-
   const { ingestionId } = await params;
   if (!ingestionId) return new Response(null, { status: 404 });
 

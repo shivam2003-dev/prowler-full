@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 
 import { apiBaseUrl, getAuthHeaders } from "@/lib/helper";
 import { handleApiResponse } from "@/lib/server-actions-helper";
-import { isCloud } from "@/lib/shared/env";
 import type { ApiResponse } from "@/types/components";
 import {
   samlConfigFormSchema,
@@ -61,9 +60,7 @@ const buildSamlRequestAttributes = (
   additionalEmailDomains: string[],
 ): SamlConfigurationUpdateRequestAttributes => ({
   email_domain: emailDomain,
-  ...(isCloud() && {
-    additional_email_domains: additionalEmailDomains,
-  }),
+  additional_email_domains: additionalEmailDomains,
 });
 
 const buildSamlCreateRequestAttributes = (

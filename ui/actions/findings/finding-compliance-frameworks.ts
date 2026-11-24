@@ -8,7 +8,6 @@ import {
   isSampleId,
   sampleComplianceFrameworks,
 } from "@/lib/sample-preview/sample-records";
-import { isCloud } from "@/lib/shared/env";
 import type { FindingComplianceFrameworksResult } from "@/types/compliance-watchlist";
 
 import { adaptFindingComplianceFrameworks } from "./finding-compliance-frameworks.adapter";
@@ -39,7 +38,6 @@ export const getFindingComplianceFrameworks = async (
   if (isSampleId(parsedFindingId.data)) {
     return sampleComplianceFrameworks(parsedFindingId.data);
   }
-  if (!isCloud()) return { frameworks: [], unavailable: true };
 
   try {
     const headers = await getAuthHeaders({ contentType: false });

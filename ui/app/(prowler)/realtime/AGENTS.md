@@ -4,7 +4,7 @@ Read this before changing anything under `app/(prowler)/realtime/`. General UI r
 
 ## What It Is
 
-Realtime reads AWS CloudTrail events, raises detections, and can fix (and revert) AWS resources. It is a Prowler Cloud feature: both pages call `notFound()` unless `isCloud()`, and only AWS providers are offered (`_lib/load.ts`).
+Realtime reads AWS CloudTrail events, raises detections, and can fix (and revert) AWS resources. It runs in every deployment against the `/realtime` API; only AWS providers are offered (`_lib/load.ts`). On Local Server the API only reads CloudTrail unless `DJANGO_REALTIME_REMEDIATION_ENABLED=true`.
 
 ## Owner Map
 
