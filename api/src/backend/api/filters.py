@@ -1910,5 +1910,11 @@ class ResourceGroupOverviewFilter(FilterSet):
 class ComplianceWatchlistFilter(BaseProviderFilter):
     """Filter for compliance watchlist overview by provider."""
 
+    # Applied by the view to the aggregated rows; declared so it validates.
+    in_watchlist = BooleanFilter(method="_keep_all")
+
+    def _keep_all(self, queryset, name, value):
+        return queryset
+
     class Meta(BaseProviderFilter.Meta):
         model = ProviderComplianceScore

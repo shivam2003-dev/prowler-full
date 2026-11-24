@@ -384,3 +384,50 @@ def label_postgres_connections(databases):
         if engine.startswith("psqlextra") or "postgresql" in engine:
             name = f"{component}:{alias}"[:63]
             config.setdefault("OPTIONS", {})["application_name"] = name
+
+
+# Alerts
+# Email is delivered over SMTP when DJANGO_EMAIL_HOST is set. Without it,
+# messages are written to the worker log so alerts can be tried locally.
+EMAIL_HOST = env.str("DJANGO_EMAIL_HOST", "")
+EMAIL_PORT = env.int("DJANGO_EMAIL_PORT", 587)
+EMAIL_HOST_USER = env.str("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env.str("DJANGO_EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env.bool("DJANGO_EMAIL_USE_TLS", True)
+EMAIL_USE_SSL = env.bool("DJANGO_EMAIL_USE_SSL", False)
+EMAIL_TIMEOUT = env.int("DJANGO_EMAIL_TIMEOUT", 30)
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = env.str("DJANGO_DEFAULT_FROM_EMAIL", "prowler@localhost")
+# Base URL of the UI, used for the links inside alert emails.
+ALERTS_UI_BASE_URL = env.str(
+    "DJANGO_ALERTS_UI_BASE_URL", env.str("AUTH_URL", "http://localhost:3000")
+)
+# Require recipients to confirm their address before they receive alerts.
+ALERTS_RECIPIENT_CONFIRMATION_REQUIRED = env.bool(
+    "DJANGO_ALERTS_RECIPIENT_CONFIRMATION_REQUIRED", False
+)
+
+# CLI Import
+# Largest Prowler OCSF report accepted by POST /ingestions.
+INGESTION_MAX_UPLOAD_BYTES = env.int(
+    "DJANGO_INGESTION_MAX_UPLOAD_BYTES", 200 * 1024 * 1024
+)
+
+# Lighthouse AI
+# An OpenRouter key set here connects chat for every tenant that has not
+# configured a provider of its own. Both spellings of the variable are read.
+LIGHTHOUSE_OPENROUTER_API_KEY = env.str(
+    "OPENROUTER_API_KEY", env.str("openrouter_api_key", "")
+)
+LIGHTHOUSE_DEFAULT_MODEL = env.str(
+    "LIGHTHOUSE_DEFAULT_MODEL", "anthropic/claude-haiku-5.5"
+)
+
+# Prowler Realtime
+# Realtime only reads CloudTrail by default. Fixes that change AWS resources run
+# only when this is true AND the policy is in auto mode without dry run.
+REALTIME_REMEDIATION_ENABLED = env.bool("DJANGO_REALTIME_REMEDIATION_ENABLED", False)

@@ -100,16 +100,16 @@ class ProwlerSocialAccountAdapter(DefaultSocialAccountAdapter):
                 if resolver_match
                 else ""
             ).lower()
-            # The ACS endpoint is scoped per email domain; reject mismatches so an
+            # The ACS endpoint is scoped to the configuration's primary domain;
+            # the user's domain must be one that configuration allows, so an
             # attacker cannot replay an assertion through another tenant's endpoint.
-            if organization_slug != domain:
-                return
-
             try:
                 saml_config = SAMLConfiguration.objects.using(MainRouter.admin_db).get(
-                    email_domain=domain
+                    email_domain=organization_slug
                 )
             except SAMLConfiguration.DoesNotExist:
+                return
+            if domain not in saml_config.allowed_email_domains:
                 return
 
             existing_user = self.get_user_by_email(email)

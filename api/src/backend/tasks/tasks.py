@@ -5,18 +5,24 @@ from pathlib import Path
 from shutil import rmtree
 from uuid import uuid4
 
+from alerts import services as alert_services
+from alerts.evaluation import latest_completed_scan_ids
 from api.compliance import (
     get_compliance_frameworks,
     get_prowler_provider_compliance,
 )
-from api.db_router import READ_REPLICA_ALIAS
+from api.db_router import READ_REPLICA_ALIAS, MainRouter
 from api.db_utils import delete_related_daily_task, rls_transaction
 from api.decorators import handle_provider_deletion, set_tenant
 from api.exceptions import ProviderDeletedException
 from api.models import (
+    AlertRule,
     Finding,
     Integration,
+    LighthouseAIConfiguration,
     Provider,
+    RealtimeAction,
+    RealtimeFeed,
     Scan,
     ScanSummary,
     StateChoices,
@@ -26,17 +32,24 @@ from api.utils import initialize_prowler_provider
 from api.v1.serializers import ScanTaskSerializer
 from celery import chain, group, shared_task, states
 from celery.utils.log import get_task_logger
+from compliance_watchlist import cross_provider as cross_provider_compliance
+from compliance_watchlist import pdf as compliance_pdf
 from config.celery import RLSTask
 from config.django.base import DJANGO_FINDINGS_BATCH_SIZE, DJANGO_TMP_OUTPUT_DIRECTORY
 from django.db import transaction
 from django_celery_beat.models import PeriodicTask
 from django_celery_results.models import TaskResult
+from ingestions import services as ingestion_services
+from issues import engine as issue_engine
+from lighthouse import agent as lighthouse_agent
+from lighthouse import llm as lighthouse_llm
 from prowler.lib.check.compliance_models import Compliance
 from prowler.lib.outputs.compliance.compliance import (
     process_universal_compliance_frameworks,
 )
 from prowler.lib.outputs.compliance.generic.generic import GenericCompliance
 from prowler.lib.outputs.finding import Finding as FindingOutput
+from realtime import engine as realtime_engine
 from tasks.jobs.attack_paths import (
     attack_paths_scan,
     can_provider_run_attack_paths_scan,
@@ -101,6 +114,7 @@ from tasks.utils import (
     batched,
     get_next_execution_datetime,
 )
+from triage import services as triage_services
 
 logger = get_task_logger(__name__)
 QUEUED_SCAN_TASK_STATE = "QUEUED"
@@ -431,6 +445,11 @@ def _perform_scan_complete_tasks(tenant_id: str, scan_id: str, provider_id: str)
                 provider_id=provider_id,
                 scan_id=scan_id,
             ),
+            # Alerts only read findings; grouped here so a delivery failure
+            # cannot cascade into reports or integrations.
+            evaluate_scan_alerts_task.si(tenant_id=tenant_id, scan_id=scan_id),
+            apply_scan_to_triage_task.si(tenant_id=tenant_id, scan_id=scan_id),
+            rebuild_issues_task.si(tenant_id=tenant_id, scan_id=scan_id),
         ),
     ).apply_async()
 
@@ -1310,6 +1329,208 @@ def refresh_lighthouse_provider_models_task(
     return refresh_lighthouse_provider_models(provider_config_id=provider_config_id)
 
 
+@shared_task(base=RLSTask, name="realtime-poll-feed", queue="integrations")
+def realtime_poll_feed_task(tenant_id: str, feed_id: str):
+    """Read new CloudTrail events of one Realtime feed and act on them."""
+    with rls_transaction(tenant_id):
+        feed = RealtimeFeed.objects.select_related("provider").get(id=feed_id)
+        result = realtime_engine.poll_feed(tenant_id, feed)
+        queued = RealtimeAction.objects.filter(
+            provider=feed.provider,
+            kind=RealtimeAction.KindChoices.SELF_FIX,
+            status=RealtimeAction.StatusChoices.QUEUED,
+        ).select_related("provider", "detection__event")
+    # Fixes run outside the read transaction: each one talks to AWS.
+    for action in queued:
+        with rls_transaction(tenant_id):
+            realtime_engine.apply_action(action)
+    return result
+
+
+@shared_task(name="realtime-poll-feeds", queue="integrations")
+def realtime_poll_feeds_task():
+    """Every minute: queue a poll for each feed whose policy is switched on."""
+    feeds = (
+        RealtimeFeed.objects.using(MainRouter.admin_db)
+        .filter(provider__realtime_policy__enabled=True, provider__is_deleted=False)
+        .values_list("tenant_id", "id")
+    )
+    for tenant_id, feed_id in feeds:
+        realtime_poll_feed_task.apply_async(
+            kwargs={"tenant_id": str(tenant_id), "feed_id": str(feed_id)}
+        )
+    return {"queued": len(feeds)}
+
+
+@shared_task(base=RLSTask, name="lighthouse-ai-chat")
+def lighthouse_chat_task(
+    tenant_id: str, session_id: str, user_id: str, provider: str, model: str = None
+):
+    """Answer the last user message of a Lighthouse AI session, streaming over SSE."""
+    return lighthouse_agent.run_chat(
+        tenant_id=tenant_id,
+        session_id=session_id,
+        user_id=user_id,
+        provider=provider,
+        model=model,
+    )
+
+
+@shared_task(base=RLSTask, name="lighthouse-ai-connection-check")
+def check_lighthouse_ai_connection_task(tenant_id: str, configuration_id: str):
+    """Verify the credentials of a Lighthouse AI configuration."""
+    with rls_transaction(tenant_id):
+        configuration = LighthouseAIConfiguration.objects.get(id=configuration_id)
+        return lighthouse_llm.check_connection(configuration)
+
+
+@shared_task(base=RLSTask, name="ingestion-process", queue="scans")
+def process_ingestion_task(tenant_id: str, ingestion_id: str):
+    """Import an uploaded Prowler OCSF report, then aggregate what it created."""
+    result = ingestion_services.process_ingestion(tenant_id, ingestion_id)
+    for imported in result["scans"]:
+        _perform_import_complete_tasks(tenant_id, imported["scan_id"])
+    return result
+
+
+def _perform_import_complete_tasks(tenant_id: str, scan_id: str):
+    """Post-scan work for an imported scan.
+
+    A subset of `_perform_scan_complete_tasks`: an imported provider has no
+    credentials, so the steps that connect to it (report generation, attack
+    paths, integrations) are left out. A failing one would also break the
+    chain before alerts are evaluated.
+    """
+    chain(
+        create_compliance_requirements_task.si(tenant_id=tenant_id, scan_id=scan_id),
+        update_provider_compliance_scores_task.si(tenant_id=tenant_id, scan_id=scan_id),
+    ).apply_async()
+    aggregate_attack_surface_task.apply_async(
+        kwargs={"tenant_id": tenant_id, "scan_id": scan_id}
+    )
+    chain(
+        perform_scan_summary_task.si(tenant_id=tenant_id, scan_id=scan_id),
+        group(
+            aggregate_daily_severity_task.si(tenant_id=tenant_id, scan_id=scan_id),
+            aggregate_finding_group_summaries_task.si(
+                tenant_id=tenant_id, scan_id=scan_id
+            ),
+        ),
+        group(
+            evaluate_scan_alerts_task.si(tenant_id=tenant_id, scan_id=scan_id),
+            apply_scan_to_triage_task.si(tenant_id=tenant_id, scan_id=scan_id),
+            rebuild_issues_task.si(tenant_id=tenant_id, scan_id=scan_id),
+        ),
+    ).apply_async()
+
+
+@shared_task(
+    base=RLSTask, name="compliance-aggregated-pdf", queue="scan-reports", bind=True
+)
+def generate_aggregated_compliance_pdf_task(
+    self,
+    tenant_id: str,
+    kind: str,
+    compliance_id: str,
+    provider_type: str | None,
+    provider_ids: list[str],
+    scan_ids: list[str],
+    report_name: str,
+    key: str,
+):
+    """Render a cross-provider or cross-account compliance view as a PDF."""
+    with rls_transaction(tenant_id):
+        providers = Provider.objects.filter(tenant_id=tenant_id, id__in=provider_ids)
+        if kind == compliance_pdf.CROSS_ACCOUNT:
+            payload = cross_provider_compliance.cross_account(
+                tenant_id, compliance_id, provider_type, providers, scan_ids
+            )
+        else:
+            payload = cross_provider_compliance.overview(
+                tenant_id, compliance_id, providers, scan_ids
+            )
+    if payload is None:
+        raise ValueError(f"No provider supports {compliance_id}.")
+    scope = provider_type.upper() if provider_type else "Cross-provider"
+    title = report_name or f"{payload['name']} - {scope} compliance"
+    compliance_pdf.render(
+        kind,
+        payload,
+        compliance_pdf.output_path(tenant_id, self.request.id),
+        title,
+    )
+    return {
+        "kind": kind,
+        "key": key,
+        "filename": compliance_pdf.safe_filename(title),
+        "compliance_id": compliance_id,
+    }
+
+
+@shared_task(name="issues-rebuild", queue="overview")
+@handle_provider_deletion
+def rebuild_issues_task(tenant_id: str, scan_id: str):
+    """Fold the scan's failing findings into attack-path issues."""
+    with rls_transaction(tenant_id):
+        scan = Scan.objects.get(id=scan_id)
+        return {"issues": len(issue_engine.rebuild(tenant_id, scan))}
+
+
+@shared_task(name="triage-apply-scan", queue="overview")
+@handle_provider_deletion
+def apply_scan_to_triage_task(tenant_id: str, scan_id: str):
+    """Reopen or resolve triaged findings according to a finished scan."""
+    with rls_transaction(tenant_id):
+        return triage_services.apply_scan_results(tenant_id, scan_id)
+
+
+@shared_task(name="alerts-evaluate-scan", queue="integrations")
+@handle_provider_deletion
+def evaluate_scan_alerts_task(tenant_id: str, scan_id: str):
+    """Evaluate the tenant's after-scan alert rules against a finished scan."""
+    with rls_transaction(tenant_id):
+        return alert_services.evaluate_rules(
+            tenant_id,
+            AlertRule.TriggerChoices.AFTER_SCAN,
+            scan_ids=[scan_id],
+            scan_id=scan_id,
+        )
+
+
+@shared_task(name="alerts-evaluate-daily", queue="integrations")
+def evaluate_daily_alerts_task():
+    """Evaluate daily alert rules of every tenant over each provider's latest scan."""
+    tenant_ids = list(
+        AlertRule.objects.using(MainRouter.admin_db)
+        .filter(
+            enabled=True,
+            trigger__in=[
+                AlertRule.TriggerChoices.DAILY,
+                AlertRule.TriggerChoices.BOTH,
+            ],
+        )
+        .values_list("tenant_id", flat=True)
+        .distinct()
+    )
+    totals = {"tenants": len(tenant_ids), "evaluated": 0, "fired": 0, "failed": 0}
+    for tenant_id in tenant_ids:
+        tenant_id = str(tenant_id)
+        try:
+            with rls_transaction(tenant_id):
+                result = alert_services.evaluate_rules(
+                    tenant_id,
+                    AlertRule.TriggerChoices.DAILY,
+                    scan_ids=latest_completed_scan_ids(tenant_id),
+                )
+        except Exception:  # noqa: BLE001 - one tenant must not stop the rest
+            logger.exception("Daily alert evaluation failed for tenant %s", tenant_id)
+            totals["failed"] += 1
+            continue
+        for key in ("evaluated", "fired", "failed"):
+            totals[key] += result[key]
+    return totals
+
+
 @shared_task(name="integration-check")
 @handle_provider_deletion
 def check_integrations_task(tenant_id: str, provider_id: str, scan_id: str = None):
@@ -1428,9 +1649,10 @@ def jira_integration_task(
     project_key: str,
     issue_type: str,
     finding_ids: list[str],
+    dispatch_mode: str = "individual",
 ):
     return send_findings_to_jira(
-        tenant_id, integration_id, project_key, issue_type, finding_ids
+        tenant_id, integration_id, project_key, issue_type, finding_ids, dispatch_mode
     )
 
 

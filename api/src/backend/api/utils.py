@@ -417,7 +417,28 @@ def initialize_prowler_provider(
     """
     prowler_provider = return_prowler_provider(provider)
     prowler_provider_kwargs = get_prowler_provider_kwargs(provider, mutelist_processor)
+    config_content = get_scan_config_content(provider)
+    if config_content is not None:
+        prowler_provider_kwargs["config_content"] = config_content
     return prowler_provider(**prowler_provider_kwargs)
+
+
+def get_scan_config_content(provider: Provider) -> dict | None:
+    """Return the config section of the Scan Configuration attached to `provider`.
+
+    None when the provider has no Scan Configuration, or its configuration has
+    no section for this provider type: the SDK then loads its default config.
+    Must be called inside the tenant's RLS transaction.
+    """
+    from api.models import ScanConfiguration
+
+    scan_configuration = ScanConfiguration.objects.filter(
+        tenant_id=provider.tenant_id, providers=provider
+    ).first()
+    if scan_configuration is None:
+        return None
+    section = scan_configuration.configuration.get(provider.provider)
+    return section if isinstance(section, dict) else None
 
 
 def prowler_provider_connection_test(provider: Provider) -> Connection:

@@ -557,102 +557,146 @@ def get_tenant_name(tenant_id: str) -> str:
         return ""
 
 
+def _jira_finding_kwargs(tenant_id: str, finding_instance) -> dict:
+    """The `send_finding` arguments that describe one finding."""
+    resource = (
+        finding_instance.resources.first()
+        if finding_instance.resources.exists()
+        else None
+    )
+    resource_tags = {}
+    if resource and hasattr(resource, "tags"):
+        resource_tags = resource.get_tags(tenant_id)
+    check_metadata = finding_instance.check_metadata
+    remediation = check_metadata.get("remediation", {})
+    recommendation = remediation.get("recommendation", {})
+    remediation_code = remediation.get("code", {})
+    provider_type = finding_instance.scan.provider.provider
+    return {
+        "check_id": finding_instance.check_id,
+        "check_title": check_metadata.get("checktitle", ""),
+        "severity": finding_instance.severity,
+        "status": finding_instance.status,
+        "status_extended": finding_instance.status_extended or "",
+        "provider": provider_type,
+        "region": resource.region if resource and resource.region else "",
+        "resource_uid": resource.uid if resource else "",
+        "resource_name": resource.name if resource else "",
+        "risk": check_metadata.get("risk", ""),
+        "recommendation_text": recommendation.get("text", ""),
+        "recommendation_url": recommendation.get("url", ""),
+        "remediation_code_native_iac": remediation_code.get("nativeiac", ""),
+        "remediation_code_terraform": remediation_code.get("terraform", ""),
+        "remediation_code_cli": remediation_code.get("cli", ""),
+        "remediation_code_other": remediation_code.get("other", ""),
+        "resource_tags": resource_tags,
+        "compliance": finding_instance.compliance or {},
+        "issue_labels": build_jira_issue_labels(
+            finding_uid=finding_instance.uid,
+            provider=provider_type,
+            severity=finding_instance.severity,
+            check_id=finding_instance.check_id,
+        ),
+        "finding_url": build_jira_finding_url(finding_instance.uid),
+    }
+
+
+def _grouped_resource_row(finding_instance) -> dict:
+    resource = finding_instance.resources.first()
+    provider = finding_instance.scan.provider
+    return {
+        "resource_name": resource.name if resource else "",
+        "resource_uid": resource.uid if resource else "",
+        "provider": provider.provider,
+        "service": resource.service if resource else "",
+        "provider_account": provider.alias or provider.uid,
+        "status": finding_instance.status,
+        "severity": finding_instance.severity,
+        "region": resource.region if resource else "",
+        "last_seen": finding_instance.inserted_at.date().isoformat(),
+        "failing_for": "",
+        "triage": "",
+    }
+
+
 def send_findings_to_jira(
     tenant_id: str,
     integration_id: str,
     project_key: str,
     issue_type: str,
     finding_ids: list[str],
+    dispatch_mode: str = "individual",
 ):
+    """Create Jira issues for findings.
+
+    `individual` creates one issue per finding. `grouped` creates one issue per
+    check, listing every affected resource of that check in a table.
+    """
     with rls_transaction(tenant_id):
         integration = Integration.objects.get(id=integration_id)
         jira_integration = initialize_prowler_integration(integration)
         tenant_info = get_tenant_name(tenant_id)
 
+    # Each send is (id used in logs, finding ids it covers).
+    sends: list[tuple[str, list[str]]]
+    if dispatch_mode == "grouped":
+        with rls_transaction(tenant_id):
+            by_check: dict[str, list[str]] = {}
+            for finding_id, check_id in Finding.all_objects.filter(
+                id__in=finding_ids
+            ).values_list("id", "check_id"):
+                by_check.setdefault(check_id, []).append(str(finding_id))
+        sends = list(by_check.items())
+    else:
+        sends = [(finding_id, [finding_id]) for finding_id in finding_ids]
+
+    noun = "check" if dispatch_mode == "grouped" else "finding"
     num_tickets_created = 0
     error_messages = []
-    for finding_id in finding_ids:
+    for label, covered in sends:
         with rls_transaction(tenant_id):
-            finding_instance = (
-                Finding.all_objects.select_related("scan__provider")
-                .prefetch_related("resources")
-                .get(id=finding_id)
+            base = Finding.all_objects.select_related(
+                "scan__provider"
+            ).prefetch_related("resources")
+            findings = (
+                list(base.filter(id__in=covered).order_by("id"))
+                if dispatch_mode == "grouped"
+                else [base.get(id=covered[0])]
             )
-
-            # Extract resource information
-            resource = (
-                finding_instance.resources.first()
-                if finding_instance.resources.exists()
-                else None
-            )
-            resource_uid = resource.uid if resource else ""
-            resource_name = resource.name if resource else ""
-            resource_tags = {}
-            if resource and hasattr(resource, "tags"):
-                resource_tags = resource.get_tags(tenant_id)
-
-            # Get region
-            region = resource.region if resource and resource.region else ""
-
-            # Extract remediation information from check_metadata
-            check_metadata = finding_instance.check_metadata
-            remediation = check_metadata.get("remediation", {})
-            recommendation = remediation.get("recommendation", {})
-            remediation_code = remediation.get("code", {})
-
-            provider_type = finding_instance.scan.provider.provider
-            issue_labels = build_jira_issue_labels(
-                finding_uid=finding_instance.uid,
-                provider=provider_type,
-                severity=finding_instance.severity,
-                check_id=finding_instance.check_id,
-            )
-            finding_url = build_jira_finding_url(finding_instance.uid)
-
+            if not findings:
+                continue
+            kwargs = _jira_finding_kwargs(tenant_id, findings[0])
+            if dispatch_mode == "grouped":
+                kwargs["grouped_resources"] = [
+                    _grouped_resource_row(f) for f in findings
+                ]
+                kwargs["affected_failing_resources"] = sum(
+                    1 for f in findings if f.status == "FAIL"
+                )
             try:
-                # Send the individual finding to Jira
                 result = jira_integration.send_finding(
-                    check_id=finding_instance.check_id,
-                    check_title=check_metadata.get("checktitle", ""),
-                    severity=finding_instance.severity,
-                    status=finding_instance.status,
-                    status_extended=finding_instance.status_extended or "",
-                    provider=provider_type,
-                    region=region,
-                    resource_uid=resource_uid,
-                    resource_name=resource_name,
-                    risk=check_metadata.get("risk", ""),
-                    recommendation_text=recommendation.get("text", ""),
-                    recommendation_url=recommendation.get("url", ""),
-                    remediation_code_native_iac=remediation_code.get("nativeiac", ""),
-                    remediation_code_terraform=remediation_code.get("terraform", ""),
-                    remediation_code_cli=remediation_code.get("cli", ""),
-                    remediation_code_other=remediation_code.get("other", ""),
-                    resource_tags=resource_tags,
-                    compliance=finding_instance.compliance or {},
+                    **kwargs,
                     project_key=project_key,
                     issue_type=issue_type,
-                    issue_labels=issue_labels,
-                    finding_url=finding_url,
                     tenant_info=tenant_info,
                 )
             except JiraBaseException as error:
                 error_message = error.message or JIRA_GENERIC_SEND_ERROR
                 logger.exception(
-                    "Failed to send finding %s to Jira: %s", finding_id, error_message
+                    f"Failed to send {noun} %s to Jira: %s", label, error_message
                 )
                 error_messages.append(error_message)
                 continue
             except Exception:
-                logger.exception("Failed to send finding %s to Jira", finding_id)
+                logger.exception(f"Failed to send {noun} %s to Jira", label)
                 error_messages.append(JIRA_GENERIC_SEND_ERROR)
                 continue
 
             if result:
                 num_tickets_created += 1
                 logger.info(
-                    "Finding %s sent to Jira as %s",
-                    finding_id,
+                    f"{noun.capitalize()} %s sent to Jira as %s",
+                    label,
                     result.get("key") if isinstance(result, dict) else result,
                 )
             else:
@@ -662,7 +706,7 @@ def send_findings_to_jira(
 
     result = {
         "created_count": num_tickets_created,
-        "failed_count": len(finding_ids) - num_tickets_created,
+        "failed_count": len(sends) - num_tickets_created,
     }
     if error_messages:
         result["error"] = "; ".join(dict.fromkeys(error_messages))

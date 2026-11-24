@@ -1,0 +1,1 @@
+Self-hosted API endpoints for Alerts, Scan Configurations, CLI import (ingestions), Lighthouse AI chat sessions, finding triage, Prowler Realtime, Issues, advanced scan schedules, the compliance watchlist and catalog, cross-provider and cross-account compliance views with PDF export, SAML additional email domains and grouped Jira dispatch
