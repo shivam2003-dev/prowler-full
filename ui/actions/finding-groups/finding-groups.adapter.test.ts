@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  
-  FINDING_TRIAGE_STATUS,
-} from "@/types/findings-triage";
+import { FINDING_TRIAGE_STATUS } from "@/types/findings-triage";
 
 import {
   adaptFindingGroupResourcesResponse,

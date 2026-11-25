@@ -24,7 +24,8 @@ def ct_record(
     return {
         "eventID": event_id
         or hashlib.sha1(
-            f"{name}{json.dumps(params, sort_keys=True)}".encode()
+            f"{name}{json.dumps(params, sort_keys=True)}".encode(),
+            usedforsecurity=False,
         ).hexdigest(),
         "eventTime": (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat(),
         "awsRegion": region,

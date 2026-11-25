@@ -26,10 +26,7 @@ import {
 } from "@/lib/integrations/test-connection-helper";
 import { useCloudUpgradeStore } from "@/store";
 import { MetaDataProps } from "@/types";
-import {
-  
-  PAID_PLAN_UPGRADE_FEATURE,
-} from "@/types/cloud-upgrade";
+import { PAID_PLAN_UPGRADE_FEATURE } from "@/types/cloud-upgrade";
 import { IntegrationProps } from "@/types/integrations";
 import { ProviderProps } from "@/types/providers";
 
