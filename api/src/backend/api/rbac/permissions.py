@@ -38,6 +38,11 @@ TASK_REVOKE_PERMISSIONS: dict[str, list[Permissions] | None] = {
     "lighthouse-connection-check": [],
     "lighthouse-provider-connection-check": [],
     "lighthouse-provider-models-refresh": [],
+    "lighthouse-ai-chat": [],
+    "lighthouse-ai-connection-check": [],
+    "realtime-poll-feed": [Permissions.MANAGE_SCANS],
+    "ingestion-process": [Permissions.MANAGE_SCANS],
+    "compliance-aggregated-pdf": [],
 }
 
 

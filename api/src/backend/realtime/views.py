@@ -68,7 +68,7 @@ SEVERITIES = ("low", "medium", "high", "critical")
 class DocumentParser(BaseParser):
     media_type = "application/vnd.api+json"
 
-    def parse(self, stream, media_type=None, parser_context=None):
+    def parse(self, stream, _media_type=None, _parser_context=None):
         try:
             document = json.loads(stream.read() or b"{}")
         except ValueError as error:

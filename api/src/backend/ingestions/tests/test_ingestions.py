@@ -236,8 +236,9 @@ class TestProcessIngestion:
         assert scan.progress == 100
         assert scan.unique_resource_count == 2
         assert scan.is_full_scope() is False
-        findings = Finding.all_objects.filter(scan=scan).order_by("check_id")
-        assert [(f.check_id, f.status, f.severity) for f in findings] == [
+        findings = Finding.all_objects.filter(scan=scan)
+        # Sorted in Python: the database collation may order "_" differently.
+        assert sorted((f.check_id, f.status, f.severity) for f in findings) == [
             ("a_check_this_server_does_not_know", "PASS", "high"),
             ("accessanalyzer_enabled", "FAIL", "low"),
         ]

@@ -15155,7 +15155,8 @@ class TestOverviewViewSet:
 
 @pytest.mark.django_db
 class TestScheduleViewSet:
-    @pytest.mark.parametrize("method", ["get", "post"])
+    # GET lists the advanced scan schedules; only POST stays unsupported.
+    @pytest.mark.parametrize("method", ["post"])
     def test_schedule_invalid_method_list(self, method, authenticated_client):
         response = getattr(authenticated_client, method)(reverse("schedule-list"))
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
