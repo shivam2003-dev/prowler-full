@@ -11,7 +11,8 @@ from api.v1.serializers import TaskSerializer
 from django.db import transaction
 from django.urls import reverse
 from django_filters.rest_framework import BooleanFilter, FilterSet
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular_jsonapi.schemas.openapi import JsonApiAutoSchema
 from lighthouse import agent, llm, services
 from lighthouse.serializers import (
     LighthouseAIConfigurationSerializer,
@@ -124,13 +125,41 @@ class LighthouseAIConfigurationViewSet(_TaskResponseMixin, BaseRLSViewSet):
         return _task_response(task.id)
 
 
+class _UnpaginatedListSchema(JsonApiAutoSchema):
+    """Documents the unpaginated list as one schema component.
+
+    The JSON:API schema plugin needs a component reference for every response
+    and fails on the bare array an unpaginated list would produce.
+    """
+
+    def _is_list_view(self, serializer=None):
+        return False
+
+
 @extend_schema_view(
-    list=extend_schema(tags=[TAG], summary="List supported LLM providers"),
+    list=extend_schema(
+        tags=[TAG],
+        summary="List supported LLM providers",
+        responses={
+            200: OpenApiResponse(
+                LighthouseSupportedProviderSerializer,
+                description="A `data` array of these resources, not paginated.",
+            )
+        },
+    ),
     models=extend_schema(
-        tags=[TAG], summary="List the models of a connected LLM provider"
+        tags=[TAG],
+        summary="List the models of a connected LLM provider",
+        responses={
+            200: OpenApiResponse(
+                LighthouseSupportedModelSerializer,
+                description="A `data` array of these resources, not paginated.",
+            )
+        },
     ),
 )
 class LighthouseSupportedProviderViewSet(BaseRLSViewSet):
+    schema = _UnpaginatedListSchema()
     serializer_class = LighthouseSupportedProviderSerializer
     http_method_names = ["get"]
     filter_backends = []
