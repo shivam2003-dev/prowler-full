@@ -2,7 +2,6 @@ import { cache } from "react";
 
 import { getComplianceCatalog } from "@/actions/compliance-watchlist";
 import { auth } from "@/auth.config";
-import { isCloud } from "@/lib/shared/env";
 import type { ComplianceCatalogEntry } from "@/types/compliance-watchlist";
 
 export interface ComplianceWatchlistContext {
@@ -60,7 +59,5 @@ export const loadComplianceWatchlistContext = ({
 }: {
   providerTypes?: string[];
 } = {}): Promise<ComplianceWatchlistContext> => {
-  if (!isCloud()) return Promise.resolve(EMPTY_WATCHLIST_CONTEXT);
-
   return loadContextForKey(buildProviderTypesKey(providerTypes));
 };

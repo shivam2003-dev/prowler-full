@@ -15,7 +15,6 @@ import {
   LAUNCH_SCAN_SEARCH_PARAM,
   LAUNCH_SCAN_SEARCH_VALUE,
 } from "@/lib/scans-navigation";
-import { isCloud } from "@/lib/shared/env";
 import { useScansStore } from "@/store";
 import { SCAN_JOBS_TAB, SCAN_TAB_LABELS, type ScanJobsTab } from "@/types";
 import type { ProviderGroup } from "@/types/components";
@@ -71,7 +70,6 @@ export function ScansPageShell({
   // Non-blocking hint: shown when scans can't be launched (no provider, or
   // none connected). The table still renders below, so imported scans stay visible.
   const showProvidersHint = thereAreNoProviders || !hasConnectedProviders;
-  const isCloudEnvironment = isCloud();
   const launchDisabled = !hasManageScansPermission || !hasConnectedProviders;
   const launchOpen =
     !launchDisabled && (isLaunchScanModalOpen || urlLaunchOpen);
@@ -123,7 +121,7 @@ export function ScansPageShell({
         />
       </div>
 
-      {isCloudEnvironment && <CliImportBanner />}
+      <CliImportBanner />
 
       <Tabs
         value={filters.activeTab}
@@ -151,9 +149,7 @@ export function ScansPageShell({
             >
               Launch Scan
             </Button>
-            {isCloudEnvironment && hasManageIngestionsPermission && (
-              <ImportFindingsModal />
-            )}
+            {hasManageIngestionsPermission && <ImportFindingsModal />}
             <MutedFindingsConfigButton />
           </div>
         </div>

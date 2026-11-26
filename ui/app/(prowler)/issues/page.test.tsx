@@ -43,13 +43,11 @@ describe("Issues deployment availability", () => {
     getAllProviderGroups.mockResolvedValue({ data: [] });
     getSamplePreviewState.mockResolvedValue({ active: false });
   });
-  it("returns not found before loading data in Local Server", async () => {
+  it("loads in Local Server", async () => {
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
-    await expect(Issues({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-      "NOT_FOUND",
-    );
-    expect(getAllProviders).not.toHaveBeenCalled();
-    expect(getAllProviderGroups).not.toHaveBeenCalled();
+    await expect(
+      Issues({ searchParams: Promise.resolve({}) }),
+    ).resolves.toBeTruthy();
   });
   it("loads the scope controls in Cloud deployments", async () => {
     vi.stubEnv("UI_CLOUD_ENABLED", "true");

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { apiBaseUrl, getAuthHeaders } from "@/lib";
 import { parseIngestion } from "@/lib/ingestions";
-import { isCloud } from "@/lib/shared/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,8 +49,6 @@ const ingestionRejectionMessage = (
 };
 
 export async function POST(request: Request) {
-  if (!isCloud()) return new Response(null, { status: 404 });
-
   const headers = await getAuthHeaders({ contentType: false });
   const contentType = request.headers.get("content-type");
   const contentLength = request.headers.get("content-length");

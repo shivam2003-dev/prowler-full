@@ -10,7 +10,7 @@ describe("useScanScheduleCapability", () => {
     vi.unstubAllEnvs();
   });
 
-  it("returns DAILY_LEGACY for OSS without loading", () => {
+  it("returns ADVANCED for Local Server without loading", () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
 
@@ -19,7 +19,7 @@ describe("useScanScheduleCapability", () => {
 
     // Then
     expect(result.current).toEqual({
-      capability: SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY,
+      capability: SCAN_SCHEDULE_CAPABILITY.ADVANCED,
       isScheduleCapabilityLoading: false,
     });
   });

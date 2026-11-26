@@ -9,7 +9,6 @@ import { SeedFromFindingsButton } from "@/app/(prowler)/alerts/_components";
 import { FindingsFilters } from "@/components/findings/findings-filters";
 import { createScanDetailsMapping, splitCsvFilterValues } from "@/lib";
 import { getSelectedFindingCheckOptions } from "@/lib/finding-group-filter-options";
-import { isCloud } from "@/lib/shared/env";
 import { ScanEntity, ScanProps } from "@/types";
 
 interface FindingsFiltersSectionProps {
@@ -95,7 +94,6 @@ export async function FindingsFiltersSection({
           uniqueResourceTypes={uniqueResourceTypes}
           uniqueCategories={uniqueCategories}
           uniqueGroups={uniqueGroups}
-          isCloudEnabled={isCloud()}
         />
       }
     />

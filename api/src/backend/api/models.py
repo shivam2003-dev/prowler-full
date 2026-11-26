@@ -703,6 +703,7 @@ class Scan(RowLevelSecurityProtectedModel):
     class TriggerChoices(models.TextChoices):
         SCHEDULED = "scheduled", _("Scheduled")
         MANUAL = "manual", _("Manual")
+        IMPORTED = "imported", _("Imported")
 
     # Trigger values for scans that ran the SDK end-to-end. Imported scans (or
     # any future trigger) are intentionally NOT in this set — they may carry
@@ -2173,6 +2174,13 @@ class SAMLConfiguration(RowLevelSecurityProtectedModel):
     metadata_xml = models.TextField(
         help_text="Raw IdP metadata XML to configure SingleSignOnService, certificates, etc."
     )
+    additional_email_domains = ArrayField(
+        models.CharField(max_length=254),
+        default=list,
+        blank=True,
+        help_text="Other email domains whose users sign in with this configuration. "
+        "The ACS URL always uses the primary domain.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -2199,6 +2207,29 @@ class SAMLConfiguration(RowLevelSecurityProtectedModel):
         # Domain must not contain @
         if "@" in self.email_domain:
             raise ValidationError({"email_domain": "Domain must not contain @"})
+        for domain in self.additional_email_domains:
+            if not domain or "@" in domain or "." not in domain:
+                raise ValidationError(
+                    {"additional_email_domains": f"{domain!r} is not a domain."}
+                )
+        if self.email_domain in self.additional_email_domains:
+            raise ValidationError(
+                {"additional_email_domains": "Do not repeat the primary domain."}
+            )
+        # Additional domains, like the primary one, belong to one tenant only.
+        taken = (
+            SAMLDomainIndex.objects.filter(
+                email_domain__in=self.additional_email_domains
+            )
+            .exclude(tenant=self.tenant)
+            .exists()
+        )
+        if taken:
+            raise ValidationError(
+                {
+                    "additional_email_domains": "There is a problem with your email domain."
+                }
+            )
 
         # Enforce at most one config per tenant
         qs = SAMLConfiguration.objects.filter(tenant=self.tenant)
@@ -2243,17 +2274,33 @@ class SAMLConfiguration(RowLevelSecurityProtectedModel):
                     {"metadata_xml": "There is a problem with your metadata."}
                 )
 
+    @property
+    def allowed_email_domains(self) -> set[str]:
+        return {
+            self.email_domain.lower(),
+            *(domain.lower() for domain in self.additional_email_domains),
+        }
+
     def save(self, *args, **kwargs):
         self.email_domain = self.email_domain.strip().lower()
+        self.additional_email_domains = list(
+            dict.fromkeys(
+                domain.strip().lower()
+                for domain in self.additional_email_domains
+                if domain.strip()
+            )
+        )
         is_create = not SAMLConfiguration.objects.filter(pk=self.pk).exists()
 
         if not is_create:
             old = SAMLConfiguration.objects.get(pk=self.pk)
             old_email_domain = old.email_domain
             old_metadata_xml = old.metadata_xml
+            old_additional = set(old.additional_email_domains)
         else:
             old_email_domain = None
             old_metadata_xml = None
+            old_additional = set()
 
         self._parsed_metadata = self._parse_metadata()
         self.clean(old_email_domain, is_create)
@@ -2274,11 +2321,23 @@ class SAMLConfiguration(RowLevelSecurityProtectedModel):
             email_domain=self.email_domain, defaults={"tenant": self.tenant}
         )
 
+        # Additional domains route sign-in to this tenant too.
+        SAMLDomainIndex.objects.filter(
+            email_domain__in=old_additional - set(self.additional_email_domains),
+            tenant=self.tenant,
+        ).delete()
+        for domain in self.additional_email_domains:
+            SAMLDomainIndex.objects.update_or_create(
+                email_domain=domain, defaults={"tenant": self.tenant}
+            )
+
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
 
         SocialApp.objects.filter(provider="saml", client_id=self.email_domain).delete()
-        SAMLDomainIndex.objects.filter(email_domain=self.email_domain).delete()
+        SAMLDomainIndex.objects.filter(
+            email_domain__in=[self.email_domain, *self.additional_email_domains]
+        ).delete()
 
     def _parse_metadata(self):
         """
@@ -2697,6 +2756,955 @@ class MuteRule(RowLevelSecurityProtectedModel):
 
     class JSONAPIMeta:
         resource_name = "mute-rules"
+
+
+class AlertRecipient(RowLevelSecurityProtectedModel):
+    """Email address that alert rules can notify."""
+
+    class StatusChoices(models.TextChoices):
+        PENDING = "pending", _("Pending")
+        CONFIRMED = "confirmed", _("Confirmed")
+        UNSUBSCRIBED = "unsubscribed", _("Unsubscribed")
+        BOUNCED = "bounced", _("Bounced")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    email = models.EmailField(max_length=254)
+    status = models.CharField(
+        max_length=16, choices=StatusChoices.choices, default=StatusChoices.PENDING
+    )
+    # Opaque secret carried by the confirm/unsubscribe links. Never serialized.
+    token = models.CharField(max_length=64, unique=True, editable=False)
+    confirmation_sent_at = models.DateTimeField(null=True, blank=True)
+    confirmation_expires_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    unsubscribed_at = models.DateTimeField(null=True, blank=True)
+    last_bounce_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "alert_recipients"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "email"),
+                name="unique_alert_recipient_email_per_tenant",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "alert-recipients"
+
+
+class AlertRule(RowLevelSecurityProtectedModel):
+    """Condition over failing findings that notifies recipients when it holds."""
+
+    class TriggerChoices(models.TextChoices):
+        AFTER_SCAN = "after_scan", _("After scan")
+        DAILY = "daily", _("Daily")
+        BOTH = "both", _("Both")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    name = models.CharField(max_length=120, validators=[MinLengthValidator(1)])
+    description = models.TextField(max_length=2000, blank=True, default="")
+    enabled = models.BooleanField(default=True)
+    trigger = models.CharField(
+        max_length=16,
+        choices=TriggerChoices.choices,
+        default=TriggerChoices.AFTER_SCAN,
+    )
+    # Validated by alerts.dsl.validate_condition before it is stored.
+    condition = models.JSONField(default=dict)
+    schema_version = models.PositiveSmallIntegerField(default=1)
+    slack_channels = models.JSONField(default=list, blank=True)
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_alert_rules",
+    )
+    recipients = models.ManyToManyField(
+        AlertRecipient,
+        through="AlertRuleRecipient",
+        related_name="rules",
+    )
+    last_evaluated_at = models.DateTimeField(null=True, blank=True)
+    last_triggered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "alert_rules"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "name"),
+                name="unique_alert_rule_name_per_tenant",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "enabled", "trigger"],
+                name="alert_rules_tenant_trigger_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "alert-rules"
+
+
+class AlertRuleRecipient(RowLevelSecurityProtectedModel):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    rule = models.ForeignKey(AlertRule, on_delete=models.CASCADE)
+    recipient = models.ForeignKey(AlertRecipient, on_delete=models.CASCADE)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "alert_rule_recipients"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("rule_id", "recipient_id"),
+                name="unique_alert_rule_recipient",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "alert-rule-recipients"
+
+
+class AlertEvent(RowLevelSecurityProtectedModel):
+    """One firing of an alert rule, kept as delivery history."""
+
+    class StatusChoices(models.TextChoices):
+        SENT = "sent", _("Sent")
+        NO_RECIPIENTS = "no_recipients", _("No recipients")
+        FAILED = "failed", _("Failed")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    rule = models.ForeignKey(AlertRule, on_delete=models.CASCADE, related_name="events")
+    scan = models.ForeignKey(
+        Scan, on_delete=models.SET_NULL, null=True, related_name="alert_events"
+    )
+    trigger = models.CharField(max_length=16)
+    status = models.CharField(max_length=16, choices=StatusChoices.choices)
+    summary = models.JSONField(default=dict)
+    recipient_count = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True, default="")
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "alert_events"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "rule_id", "-inserted_at"],
+                name="alert_events_rule_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "alert-events"
+
+
+class ScanConfiguration(RowLevelSecurityProtectedModel):
+    """Overrides of the Prowler `config.yaml` applied to the scans of some providers."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    name = models.CharField(max_length=100, validators=[MinLengthValidator(3)])
+    # Mapping of provider type -> that provider's config section.
+    configuration = models.JSONField(default=dict)
+    providers = models.ManyToManyField(
+        Provider,
+        through="ScanConfigurationProvider",
+        related_name="scan_configurations",
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "scan_configurations"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "name"),
+                name="unique_scan_configuration_name_per_tenant",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "scan-configurations"
+
+
+class ScanConfigurationProvider(RowLevelSecurityProtectedModel):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    scan_configuration = models.ForeignKey(ScanConfiguration, on_delete=models.CASCADE)
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "scan_configuration_providers"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            # A provider follows one configuration at a time.
+            models.UniqueConstraint(
+                fields=("tenant_id", "provider_id"),
+                name="unique_scan_configuration_per_provider",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "scan-configuration-providers"
+
+
+class Ingestion(RowLevelSecurityProtectedModel):
+    """Import of a Prowler CLI OCSF report into scans and findings."""
+
+    class StatusChoices(models.TextChoices):
+        PENDING = "pending", _("Pending")
+        PROCESSING = "processing", _("Processing")
+        COMPLETED = "completed", _("Completed")
+        FAILED = "failed", _("Failed")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    status = models.CharField(
+        max_length=16, choices=StatusChoices.choices, default=StatusChoices.PENDING
+    )
+    file_name = models.CharField(max_length=255, blank=True, default="")
+    total_records = models.PositiveIntegerField(default=0)
+    processed_records = models.PositiveIntegerField(default=0)
+    invalid_records = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True, default="")
+    scan_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="ingestions"
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "ingestions"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "ingestions"
+
+
+class LighthouseAIConfiguration(RowLevelSecurityProtectedModel):
+    """LLM provider connection used by Lighthouse AI chat."""
+
+    class ProviderChoices(models.TextChoices):
+        OPENAI = "openai", _("OpenAI")
+        OPENAI_COMPATIBLE = "openai_compatible", _("OpenAI Compatible")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider_type = models.CharField(max_length=32, choices=ProviderChoices.choices)
+    credentials = models.BinaryField(
+        blank=False, null=False, help_text="Encrypted JSON credentials"
+    )
+    base_url = models.URLField(max_length=500, null=True, blank=True)
+    default_model = models.CharField(max_length=200, null=True, blank=True)
+    business_context = models.TextField(max_length=1000, blank=True, default="")
+    connected = models.BooleanField(null=True, blank=True)
+    connection_last_checked_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def credentials_decoded(self) -> dict:
+        if not self.credentials:
+            return {}
+        try:
+            return json.loads(fernet.decrypt(bytes(self.credentials)).decode())
+        except Exception as error:  # noqa: BLE001 - an unreadable secret is "no secret"
+            logger.warning("Failed to decrypt Lighthouse AI credentials: %s", error)
+            return {}
+
+    @credentials_decoded.setter
+    def credentials_decoded(self, value: dict):
+        self.credentials = fernet.encrypt(json.dumps(value).encode())
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "lighthouse_ai_configurations"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "provider_type"),
+                name="unique_lighthouse_ai_configuration_per_provider",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "lighthouse-ai-configurations"
+
+
+class LighthouseSession(RowLevelSecurityProtectedModel):
+    """One Lighthouse AI conversation of a user."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="lighthouse_sessions"
+    )
+    title = models.CharField(max_length=200, null=True, blank=True)
+    is_archived = models.BooleanField(default=False)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "lighthouse_sessions"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "user_id", "is_archived", "-updated_at"],
+                name="lh_sessions_user_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "lighthouse-sessions"
+
+
+class LighthouseMessage(RowLevelSecurityProtectedModel):
+    class RoleChoices(models.TextChoices):
+        USER = "user", _("User")
+        ASSISTANT = "assistant", _("Assistant")
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    session = models.ForeignKey(
+        LighthouseSession, on_delete=models.CASCADE, related_name="messages"
+    )
+    role = models.CharField(max_length=16, choices=RoleChoices.choices)
+    model = models.CharField(max_length=200, null=True, blank=True)
+    token_usage = models.JSONField(null=True, blank=True)
+    # Ordered list of {id, part_type, content, tool_call_outcome, inserted_at,
+    # updated_at}. Kept inline: parts are only ever read with their message.
+    parts = models.JSONField(default=list)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "lighthouse_messages"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "session_id", "id"],
+                name="lh_messages_session_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "lighthouse-messages"
+
+
+class FindingTriage(RowLevelSecurityProtectedModel):
+    """Workflow state of a finding, kept across scans by the finding's uid."""
+
+    class StatusChoices(models.TextChoices):
+        OPEN = "open", _("Open")
+        UNDER_REVIEW = "under_review", _("Under Review")
+        REMEDIATING = "remediating", _("Remediating")
+        RESOLVED = "resolved", _("Resolved")
+        RISK_ACCEPTED = "risk_accepted", _("Risk Accepted")
+        FALSE_POSITIVE = "false_positive", _("False Positive")
+        REOPENED = "reopened", _("Reopened")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    finding_uid = models.CharField(max_length=300)
+    status = models.CharField(
+        max_length=32, choices=StatusChoices.choices, default=StatusChoices.OPEN
+    )
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+
+    # A MANUAL finding a person verified as passing, with the evidence given.
+    manual_pass_active = models.BooleanField(null=True, blank=True)
+    manual_pass_evidence = models.TextField(max_length=500, null=True, blank=True)
+    manual_pass_created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    manual_pass_created_at = models.DateTimeField(null=True, blank=True)
+    manual_pass_expires_at = models.DateTimeField(null=True, blank=True)
+    manual_pass_deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "finding_triages"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "finding_uid"),
+                name="unique_finding_triage_per_uid",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "finding-triages"
+
+
+class FindingTriageNote(RowLevelSecurityProtectedModel):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    triage = models.ForeignKey(
+        FindingTriage, on_delete=models.CASCADE, related_name="notes"
+    )
+    body = models.TextField(max_length=500)
+    author = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "finding_triage_notes"
+
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "finding-triage-notes"
+
+
+class RealtimePolicy(RowLevelSecurityProtectedModel):
+    """How Prowler Realtime watches and enforces one AWS provider."""
+
+    class ModeChoices(models.TextChoices):
+        MONITOR = "monitor", _("Monitor")
+        PR = "pr", _("Pull request")
+        AUTO = "auto", _("Auto-fix")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.OneToOneField(
+        Provider, on_delete=models.CASCADE, related_name="realtime_policy"
+    )
+    enabled = models.BooleanField(default=False)
+    mode = models.CharField(
+        max_length=16, choices=ModeChoices.choices, default=ModeChoices.MONITOR
+    )
+    dry_run = models.BooleanField(default=True)
+    min_severity = models.CharField(max_length=16, default="high")
+    deny_checks = ArrayField(models.CharField(max_length=200), default=list, blank=True)
+    allow_regions = ArrayField(
+        models.CharField(max_length=50), default=list, blank=True
+    )
+    scope_tags = models.JSONField(default=dict, blank=True)
+    iac_repo = models.CharField(max_length=200, blank=True, default="")
+    iac_path = models.CharField(max_length=200, blank=True, default="")
+    open_pr = models.BooleanField(default=False)
+    use_lighthouse = models.BooleanField(default=True)
+    frameworks = ArrayField(models.CharField(max_length=200), default=list, blank=True)
+    cost_anomaly_enabled = models.BooleanField(default=False)
+    cost_anomaly_min_ratio = models.FloatField(default=2.0)
+    cost_anomaly_min_delta = models.FloatField(default=5.0)
+    notifications = models.JSONField(default=dict, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_policies"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-policies"
+
+
+class RealtimeFeed(RowLevelSecurityProtectedModel):
+    """Where Realtime reads CloudTrail events: an SQS queue, or LookupEvents."""
+
+    class StatusChoices(models.TextChoices):
+        NOT_CONFIGURED = "not_configured", _("Not configured")
+        CONNECTED = "connected", _("Connected")
+        ERROR = "error", _("Error")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.OneToOneField(
+        Provider, on_delete=models.CASCADE, related_name="realtime_feed"
+    )
+    queue_url = models.CharField(max_length=500, blank=True, default="")
+    region = models.CharField(max_length=50, default="us-east-1")
+    status = models.CharField(
+        max_length=16,
+        choices=StatusChoices.choices,
+        default=StatusChoices.NOT_CONFIGURED,
+    )
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    last_event_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_feeds"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-feeds"
+
+
+class RealtimeCredential(RowLevelSecurityProtectedModel):
+    """Remediation role (and optional GitHub token) of one provider."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.OneToOneField(
+        Provider, on_delete=models.CASCADE, related_name="realtime_credential"
+    )
+    role_arn = models.CharField(max_length=300, blank=True, default="")
+    # Encrypted JSON: {"external_id": ..., "github_token": ...}
+    secrets = models.BinaryField(null=True, blank=True)
+
+    @property
+    def secrets_decoded(self) -> dict:
+        if not self.secrets:
+            return {}
+        try:
+            return json.loads(fernet.decrypt(bytes(self.secrets)).decode())
+        except Exception:  # noqa: BLE001 - unreadable means absent
+            return {}
+
+    @secrets_decoded.setter
+    def secrets_decoded(self, value: dict):
+        self.secrets = fernet.encrypt(json.dumps(value).encode()) if value else None
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_credentials"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-credentials"
+
+
+class RealtimeEvent(RowLevelSecurityProtectedModel):
+    """A CloudTrail management event read by Realtime."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="realtime_events"
+    )
+    event_id = models.CharField(max_length=100)
+    event_time = models.DateTimeField()
+    region = models.CharField(max_length=50, blank=True, default="")
+    event_source = models.CharField(max_length=200, blank=True, default="")
+    event_name = models.CharField(max_length=200)
+    user_type = models.CharField(max_length=100, blank=True, default="")
+    user_arn = models.CharField(max_length=500, blank=True, default="")
+    source_ip = models.CharField(max_length=100, blank=True, default="")
+    error_code = models.CharField(max_length=200, blank=True, default="")
+    read_only = models.BooleanField(default=False)
+    request_parameters = models.JSONField(null=True, blank=True)
+    additional_data = models.JSONField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_events"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "provider_id", "event_id"),
+                name="unique_realtime_event",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "provider_id", "-event_time"],
+                name="rt_events_provider_time_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-events"
+
+
+class RealtimeDetection(RowLevelSecurityProtectedModel):
+    class StatusChoices(models.TextChoices):
+        NEW = "new", _("New")
+        VIOLATION = "violation", _("Violation")
+        COMPLIANT = "compliant", _("Compliant")
+        OUT_OF_SCOPE = "out_of_scope", _("Out of scope")
+        ERROR = "error", _("Error")
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="realtime_detections"
+    )
+    event = models.OneToOneField(
+        RealtimeEvent, on_delete=models.CASCADE, related_name="detection"
+    )
+    rule_id = models.CharField(max_length=100)
+    title = models.CharField(max_length=300)
+    severity = models.CharField(max_length=16)
+    actor = models.CharField(max_length=500, blank=True, default="")
+    resource = models.CharField(max_length=500, blank=True, default="")
+    check_ids = ArrayField(models.CharField(max_length=200), default=list)
+    requirements = ArrayField(models.CharField(max_length=200), default=list)
+    status = models.CharField(max_length=16, choices=StatusChoices.choices)
+    note = models.TextField(blank=True, default="")
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_detections"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "provider_id", "status"],
+                name="rt_detections_status_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-detections"
+
+
+class RealtimeAction(RowLevelSecurityProtectedModel):
+    class KindChoices(models.TextChoices):
+        SELF_FIX = "self_fix", _("Fix in the account")
+        CODE = "code", _("Fix in code")
+        PROPOSAL = "proposal", _("Proposal")
+
+    class StatusChoices(models.TextChoices):
+        DRY_RUN = "dry_run", _("Dry run")
+        APPLIED = "applied", _("Applied")
+        FIXED_VERIFIED = "fixed_verified", _("Fixed and verified")
+        FIX_FAILED = "fix_failed", _("Fix failed")
+        STILL_FAILING = "still_failing", _("Still failing")
+        PR_OPENED = "pr_opened", _("PR opened")
+        PR_READY = "pr_ready", _("PR ready")
+        PR_BLOCKED = "pr_blocked", _("PR blocked")
+        QUEUED = "queued", _("Queued")
+        NOT_IN_CODE = "not_in_code", _("Not in code")
+        REVERTED = "reverted", _("Reverted")
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="realtime_actions"
+    )
+    detection = models.ForeignKey(
+        RealtimeDetection,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="actions",
+    )
+    kind = models.CharField(max_length=16, choices=KindChoices.choices)
+    status = models.CharField(max_length=16, choices=StatusChoices.choices)
+    check_id = models.CharField(max_length=200, blank=True, default="")
+    remediation_id = models.CharField(max_length=100, blank=True, default="")
+    resource_uid = models.CharField(max_length=500, blank=True, default="")
+    region = models.CharField(max_length=50, blank=True, default="")
+    severity = models.CharField(max_length=16, blank=True, default="")
+    summary = models.TextField(blank=True, default="")
+    pr_url = models.CharField(max_length=500, blank=True, default="")
+    branch = models.CharField(max_length=200, blank=True, default="")
+    revertible = models.BooleanField(default=False)
+    # What the fix changed, so it can be put back.
+    undo_state = models.JSONField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "realtime_actions"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "provider_id", "-inserted_at"],
+                name="rt_actions_provider_idx",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "realtime-actions"
+
+
+class ProviderScanSchedule(RowLevelSecurityProtectedModel):
+    """When a provider is scanned automatically. Synced to a Celery beat task."""
+
+    class FrequencyChoices(models.TextChoices):
+        DAILY = "DAILY", _("Daily")
+        INTERVAL = "INTERVAL", _("Every N hours")
+        WEEKLY = "WEEKLY", _("Weekly")
+        MONTHLY = "MONTHLY", _("Monthly")
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.OneToOneField(
+        Provider, on_delete=models.CASCADE, related_name="scan_schedule"
+    )
+    scan_enabled = models.BooleanField(default=True)
+    scan_frequency = models.CharField(
+        max_length=16, choices=FrequencyChoices.choices, default=FrequencyChoices.DAILY
+    )
+    scan_hour = models.PositiveSmallIntegerField(null=True, blank=True)
+    scan_timezone = models.CharField(max_length=64, default="UTC")
+    scan_interval_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    scan_day_of_week = models.PositiveSmallIntegerField(null=True, blank=True)
+    scan_day_of_month = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "provider_scan_schedules"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "schedules"
+
+
+class Issue(RowLevelSecurityProtectedModel):
+    """Failing findings of one account folded along one attack-path pattern.
+
+    Rebuilt after every scan; the id is stable per (provider, pattern) so the
+    triage decision on the path survives rescans.
+    """
+
+    id = models.UUIDField(primary_key=True, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="issues"
+    )
+    scan = models.ForeignKey(
+        Scan, on_delete=models.SET_NULL, null=True, related_name="issues"
+    )
+    pattern = models.CharField(max_length=100)
+    title = models.CharField(max_length=300)
+    verdict = models.CharField(max_length=32)
+    verdict_rank = models.PositiveSmallIntegerField(default=0)
+    severity = models.CharField(max_length=16)
+    severity_rank = models.PositiveSmallIntegerField(default=0)
+    outcome = models.CharField(max_length=32, blank=True, default="")
+    attacker_start = models.CharField(max_length=32, blank=True, default="")
+    legs = models.JSONField(default=dict)
+    fix = models.TextField(blank=True, default="")
+    finding_uids = ArrayField(models.CharField(max_length=300), default=list)
+    resource_uids = ArrayField(models.TextField(), default=list)
+    findings_count = models.PositiveIntegerField(default=0)
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "issues"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "provider_id", "pattern"),
+                name="unique_issue_pattern",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "issues"
+
+
+class IssueTriageNote(RowLevelSecurityProtectedModel):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    issue = models.ForeignKey(
+        Issue, on_delete=models.CASCADE, related_name="triage_notes"
+    )
+    body = models.TextField(max_length=500)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "issue_triage_notes"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "issue-triage-notes"
+
+
+class IssueTriage(RowLevelSecurityProtectedModel):
+    """The decision on an issue's path, kept by issue id across scans."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+
+    issue = models.OneToOneField(Issue, on_delete=models.CASCADE, related_name="triage")
+    status = models.CharField(max_length=32, default="open")
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "issue_triages"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "issue-triages"
+
+
+class ComplianceWatchlistEntry(RowLevelSecurityProtectedModel):
+    """A framework the tenant follows on the Overview and Compliance pages."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    inserted_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    compliance_id = models.CharField(max_length=200)
+    # "*" for universal frameworks, which span every provider type.
+    provider_type = models.CharField(max_length=50)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+
+    class Meta(RowLevelSecurityProtectedModel.Meta):
+        db_table = "compliance_watchlist_entries"
+        constraints = [
+            RowLevelSecurityConstraint(
+                field="tenant_id",
+                name="rls_on_%(class)s",
+                statements=["SELECT", "INSERT", "UPDATE", "DELETE"],
+            ),
+            models.UniqueConstraint(
+                fields=("tenant_id", "compliance_id", "provider_type"),
+                name="unique_compliance_watchlist_entry",
+            ),
+        ]
+
+    class JSONAPIMeta:
+        resource_name = "compliance-watchlist-entries"
 
 
 class Processor(RowLevelSecurityProtectedModel):

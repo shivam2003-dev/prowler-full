@@ -132,13 +132,8 @@ describe("scans.utils", () => {
     expect(getScanStatusLabel("completed")).toBe("Completed");
   });
 
-  it("includes imported in the trigger filter only for Cloud", () => {
-    expect(getScanTriggerFilterOptions(false)).toEqual([
-      { value: "all", label: "All Types" },
-      { value: "manual", label: "Manual" },
-      { value: "scheduled", label: "Scheduled" },
-    ]);
-    expect(getScanTriggerFilterOptions(true)).toEqual([
+  it("includes imported in the trigger filter", () => {
+    expect(getScanTriggerFilterOptions()).toEqual([
       { value: "all", label: "All Types" },
       { value: "manual", label: "Manual" },
       { value: "scheduled", label: "Scheduled" },

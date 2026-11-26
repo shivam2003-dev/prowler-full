@@ -19,8 +19,6 @@ import {
 
 import { LighthouseIcon } from "@/components/icons/Icons";
 import { isCloud } from "@/lib/shared/env";
-import type { CloudUpgradeFeature } from "@/types/cloud-upgrade";
-import { CLOUD_UPGRADE_FEATURE } from "@/types/cloud-upgrade";
 import type { RolePermissionAttributes } from "@/types/users";
 
 import {
@@ -37,37 +35,6 @@ interface NavigationConfigOptions {
   cloudBillingEnabled?: boolean;
   registryEligible?: boolean;
   permissions?: RolePermissionAttributes;
-}
-
-interface CloudFeatureOptions {
-  isCloudEnvironment: boolean;
-  href: string;
-  label: string;
-  active: boolean;
-  feature: CloudUpgradeFeature;
-}
-
-function getCloudFeature({
-  isCloudEnvironment,
-  href,
-  label,
-  active,
-  feature,
-}: CloudFeatureOptions): NavigationChild {
-  if (!isCloudEnvironment) {
-    return {
-      kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-      label,
-      cloudUpgradeFeature: feature,
-    };
-  }
-
-  return {
-    kind: NAVIGATION_ITEM_KIND.LINK,
-    href,
-    label,
-    active,
-  };
 }
 
 function isRouteActive(pathname: string, href: string) {
@@ -148,33 +115,22 @@ export function getNavigationConfig({
       label: "SECURITY",
       items: [
         // First: the exploitable issues are what to fix before anything else.
-        ...(isCloudEnvironment
-          ? [
-              {
-                kind: NAVIGATION_ITEM_KIND.LINK,
-                href: "/issues",
-                label: "Exploitability issues",
-                icon: Crosshair,
-                active: isRouteActive(pathname, "/issues"),
-                highlight: true,
-              } as const,
-            ]
-          : []),
-        isCloudEnvironment
-          ? {
-              kind: NAVIGATION_ITEM_KIND.LINK,
-              href: "/realtime",
-              label: "Realtime",
-              icon: Radar,
-              active: isRouteActive(pathname, "/realtime"),
-              highlight: true,
-            }
-          : {
-              kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
-              label: "Realtime",
-              icon: Radar,
-              cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.REALTIME,
-            },
+        {
+          kind: NAVIGATION_ITEM_KIND.LINK,
+          href: "/issues",
+          label: "Exploitability issues",
+          icon: Crosshair,
+          active: isRouteActive(pathname, "/issues"),
+          highlight: true,
+        },
+        {
+          kind: NAVIGATION_ITEM_KIND.LINK,
+          href: "/realtime",
+          label: "Realtime",
+          icon: Radar,
+          active: isRouteActive(pathname, "/realtime"),
+          highlight: true,
+        },
         {
           kind: NAVIGATION_ITEM_KIND.LINK,
           href: "/compliance",
@@ -241,32 +197,33 @@ export function getNavigationConfig({
               label: "Providers",
               active: isRouteActive(pathname, "/providers"),
             },
-            getCloudFeature({
-              isCloudEnvironment,
+            {
+              kind: NAVIGATION_ITEM_KIND.LINK,
               href: "/alerts",
               label: "Alerts",
               active: isRouteActive(pathname, "/alerts"),
-              feature: CLOUD_UPGRADE_FEATURE.ALERTS,
-            }),
+            },
             {
               kind: NAVIGATION_ITEM_KIND.LINK,
               href: "/mutelist",
               label: "Mutelist",
               active: pathname === "/mutelist",
             },
-            getCloudFeature({
-              isCloudEnvironment,
+            {
+              kind: NAVIGATION_ITEM_KIND.LINK,
               href: "/scans/config",
               label: "Scans",
               active: isRouteActive(pathname, "/scans/config"),
-              feature: CLOUD_UPGRADE_FEATURE.SCAN_CONFIGURATION,
-            }),
+            },
+            // Self-hosted keeps the entry the Cloud teaser used to occupy; the
+            // import itself lives on the Scans page.
             ...(!isCloudEnvironment
               ? [
                   {
-                    kind: NAVIGATION_ITEM_KIND.CLOUD_UPGRADE,
+                    kind: NAVIGATION_ITEM_KIND.LINK,
+                    href: "/scans",
                     label: "CLI Import",
-                    cloudUpgradeFeature: CLOUD_UPGRADE_FEATURE.CLI_IMPORT,
+                    active: false,
                   } as const,
                 ]
               : []),

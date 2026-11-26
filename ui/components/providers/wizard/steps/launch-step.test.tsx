@@ -75,7 +75,7 @@ describe("LaunchStep", () => {
     vi.unstubAllEnvs();
   });
 
-  describe("Prowler OSS (non-Cloud)", () => {
+  describe("DAILY_LEGACY capability", () => {
     beforeEach(() => {
       vi.stubEnv("UI_CLOUD_ENABLED", "false");
       scanOnDemandMock.mockResolvedValue({ data: { id: "scan-1" } });
@@ -88,6 +88,7 @@ describe("LaunchStep", () => {
 
       render(
         <LaunchStep
+          capability={SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY}
           onBack={vi.fn()}
           onClose={vi.fn()}
           onFooterChange={onFooterChange}
@@ -122,6 +123,7 @@ describe("LaunchStep", () => {
 
       render(
         <LaunchStep
+          capability={SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY}
           onBack={vi.fn()}
           onClose={onClose}
           onFooterChange={onFooterChange}
@@ -154,6 +156,7 @@ describe("LaunchStep", () => {
 
       render(
         <LaunchStep
+          capability={SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY}
           onBack={vi.fn()}
           onClose={onClose}
           onFooterChange={onFooterChange}

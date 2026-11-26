@@ -143,7 +143,7 @@ describe("SAML configuration actions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("omits additional domains in OSS while preserving the SAML configuration flow", async () => {
+  it("sends additional domains in Local Server too", async () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     const formData = buildFormData({
@@ -158,6 +158,7 @@ describe("SAML configuration actions", () => {
     // Then
     expect(getRequestBody().data.attributes).toEqual({
       email_domain: "primary.example.com",
+      additional_email_domains: ["alias.example.com"],
     });
   });
 

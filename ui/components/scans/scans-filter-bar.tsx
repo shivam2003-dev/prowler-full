@@ -9,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/shadcn";
-import { isCloud } from "@/lib/shared/env";
 import { SCAN_JOBS_TAB, type ScanJobsTab } from "@/types";
 import type { ProviderGroup } from "@/types/components";
 import { FILTER_FIELD } from "@/types/filters";
@@ -43,8 +42,7 @@ export function ScansFilterBar({
   onScheduleTypeChange,
   onScanStatusChange,
 }: ScansFilterBarProps) {
-  const isCloudEnvironment = isCloud();
-  const triggerFilterOptions = getScanTriggerFilterOptions(isCloudEnvironment);
+  const triggerFilterOptions = getScanTriggerFilterOptions();
   const statusFilterOptions = getScanStatusFilterOptions(activeTab);
   const showScheduleTypeFilter = activeTab !== SCAN_JOBS_TAB.SCHEDULED;
 

@@ -216,12 +216,11 @@ setup_copilot() {
 
 link_agents_md() {
     local target_name="$1"
-    local agents_files
     local count=0
 
-    agents_files=$(find "$REPO_ROOT" -name "AGENTS.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
-
-    for agents_file in $agents_files; do
+    # Read one path per line so directories with spaces (or parentheses, as in
+    # ui/app/(prowler)) are not split into separate words.
+    while IFS= read -r agents_file; do
         local agents_dir
         agents_dir=$(dirname "$agents_file")
 
@@ -230,7 +229,7 @@ link_agents_md() {
         (cd "$agents_dir" && ln -sf "$(basename "$agents_file")" "$target_name")
 
         count=$((count + 1))
-    done
+    done < <(find "$REPO_ROOT" -name "AGENTS.md" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
 
     echo -e "${GREEN}  ✓ Linked $count AGENTS.md -> $target_name${NC}"
 }

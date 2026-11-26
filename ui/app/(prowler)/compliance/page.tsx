@@ -97,7 +97,8 @@ export default async function Compliance({
   // cross-provider-compliance-overviews endpoint). It is the landing tab in
   // Cloud; in OSS its trigger only carries the upsell badge, so Per Scan
   // stays active regardless of `?tab=`.
-  const crossProviderEnabled = isCloud();
+  // Served by the self-hosted API too (/cross-provider-compliance-overviews).
+  const crossProviderEnabled = true;
   const activeTab = crossProviderEnabled
     ? getComplianceTab(resolvedSearchParams.tab, resolvedSearchParams.scanId)
     : COMPLIANCE_TAB.PER_SCAN;

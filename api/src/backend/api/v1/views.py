@@ -259,6 +259,9 @@ from api.v1.serializers import (
 )
 from botocore.exceptions import ClientError, NoCredentialsError, ParamValidationError
 from celery.result import AsyncResult
+from compliance_watchlist.services import (
+    watchlisted_ids as watchlisted_compliance_ids,
+)
 from config.custom_logging import BackendLogger
 from config.env import env
 from config.settings.social_login import (
@@ -902,7 +905,10 @@ class TenantFinishACSView(FinishACSView):
         requested_domain = organization_slug.lower()
         configured_domain = saml_config.email_domain.lower()
         email_domain = user.email.rsplit("@", 1)[-1].lower()
-        if configured_domain != requested_domain or email_domain != configured_domain:
+        if (
+            configured_domain != requested_domain
+            or email_domain not in saml_config.allowed_email_domains
+        ):
             logger.error("SAML email domain does not match requested organization")
             self._rollback_saml_user(request)
             callback_url = env.str("AUTH_URL")
@@ -6801,6 +6807,12 @@ class OverviewViewSet(ProviderFilterParamsMixin, BaseRLSViewSet):
                 for cid, data in sorted(compliance_data.items())
             ]
 
+        if query_params.get("filter[in_watchlist]") == "true":
+            watched = watchlisted_compliance_ids(str(tenant_id))
+            response_data = [
+                row for row in response_data if row["compliance_id"] in watched
+            ]
+
         return Response(
             self.get_serializer(response_data, many=True).data,
             status=status.HTTP_200_OK,
@@ -7153,6 +7165,9 @@ class IntegrationJiraViewSet(BaseRLSViewSet):
                 project_key=project_key,
                 issue_type=issue_type,
                 finding_ids=finding_ids,
+                dispatch_mode=serializer.validated_data.get(
+                    "dispatch_mode", "individual"
+                ),
             )
         prowler_task = Task.objects.get(id=task.id)
         serializer = TaskSerializer(prowler_task)

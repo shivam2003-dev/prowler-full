@@ -4,6 +4,7 @@ import { getAllProviders } from "@/actions/providers";
 import type { RealtimeProviderOption } from "@/app/(prowler)/realtime/_lib/providers";
 import type { RealtimeFailure } from "@/app/(prowler)/realtime/_types";
 import { auth } from "@/auth.config";
+import { isCloud } from "@/lib/shared/env";
 
 export type AwsProvidersResult =
   | { ok: true; providers: RealtimeProviderOption[] }
@@ -35,8 +36,15 @@ export const loadAwsProviders = async (): Promise<AwsProvidersResult> => {
   };
 };
 
-/** Whether the signed-in role can change Realtime (`manage_prowler_realtime`). */
+/**
+ * Whether the signed-in role can change Realtime. Prowler Cloud has a dedicated
+ * `manage_prowler_realtime` permission; self-hosted roles do not, and the API
+ * guards Realtime writes with Manage Scans there.
+ */
 export const canManageRealtime = async (): Promise<boolean> => {
   const session = await auth();
-  return Boolean(session?.user?.permissions?.manage_prowler_realtime);
+  const permissions = session?.user?.permissions;
+  return isCloud()
+    ? Boolean(permissions?.manage_prowler_realtime)
+    : Boolean(permissions?.manage_scans);
 };

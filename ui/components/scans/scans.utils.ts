@@ -65,20 +65,13 @@ export interface ScanStatusFilterOption {
   label: string;
 }
 
-export function getScanTriggerFilterOptions(
-  isCloudEnvironment: boolean,
-): ScanTriggerFilterOption[] {
-  const options: ScanTriggerFilterOption[] = [
+export function getScanTriggerFilterOptions(): ScanTriggerFilterOption[] {
+  return [
     { value: ALL_VALUE, label: "All Types" },
     { value: SCAN_TRIGGER.MANUAL, label: "Manual" },
     { value: SCAN_TRIGGER.SCHEDULED, label: "Scheduled" },
+    { value: SCAN_TRIGGER.IMPORTED, label: "Imported" },
   ];
-
-  if (isCloudEnvironment) {
-    options.push({ value: SCAN_TRIGGER.IMPORTED, label: "Imported" });
-  }
-
-  return options;
 }
 
 export function isScanStateFilterKey(key: string): boolean {

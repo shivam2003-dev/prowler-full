@@ -39,20 +39,6 @@ describe("GET /api/ingestions/[ingestionId]", () => {
 
   afterAll(() => server.close());
 
-  it("returns not found in OSS and Local Server before reading the ingestion identifier", async () => {
-    isCloudMock.mockReturnValue(false);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await GET(new Request("http://localhost/api/ingestions"), {
-      params: Promise.resolve({ ingestionId: "ingestion-123" }),
-    });
-
-    expect(response.status).toBe(404);
-    expect(getAuthHeadersMock).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it("forwards a Cloud status request and translates its typed response", async () => {
     isCloudMock.mockReturnValue(true);
     getAuthHeadersMock.mockResolvedValue({ Authorization: "Bearer token" });

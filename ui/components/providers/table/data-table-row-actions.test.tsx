@@ -375,8 +375,8 @@ describe("DataTableRowActions", () => {
 
     // Then
     expect(screen.getByText("Edit Provider Alias")).toBeInTheDocument();
-    // Advanced schedule editing is gated to Prowler Cloud subscribed accounts.
-    expect(screen.queryByText("Edit Scan Schedule")).not.toBeInTheDocument();
+    // Every deployment serves the schedules API.
+    expect(screen.getByText("Edit Scan Schedule")).toBeInTheDocument();
     expect(screen.getByText("Add Credentials")).toBeInTheDocument();
     expect(screen.getByText("Test Connection")).toBeInTheDocument();
     expect(screen.getByText("Delete Provider")).toBeInTheDocument();

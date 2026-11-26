@@ -24,7 +24,6 @@ import { CustomInput } from "@/components/shadcn/custom";
 import { CustomLink } from "@/components/shadcn/custom/custom-link";
 import { Form, FormButtons } from "@/components/shadcn/form";
 import { useRuntimeConfig } from "@/hooks/use-runtime-config";
-import { isCloud } from "@/lib/shared/env";
 import { useCloudUpgradeStore } from "@/store";
 import { CLOUD_UPGRADE_FEATURE } from "@/types/cloud-upgrade";
 import {
@@ -157,7 +156,7 @@ export const SamlConfigForm = ({
   const [isMetadataFileReading, setIsMetadataFileReading] = useState(false);
   const activeFileReaderRef = useRef<FileReader | null>(null);
   const { toast } = useToast();
-  const isCloudEnv = isCloud();
+  const isCloudEnv = true;
   const openCloudUpgrade = useCloudUpgradeStore(
     (storeState) => storeState.openCloudUpgrade,
   );

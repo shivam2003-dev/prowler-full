@@ -92,6 +92,11 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.utils import get_md5_hash_password
+from triage.serializers import (
+    FindingIdRowTriageMixin,
+    FindingRowTriageMixin,
+    TriageListSerializer,
+)
 
 logger = logging.getLogger(BackendLogger.API)
 
@@ -1667,7 +1672,7 @@ class ResourceMetadataSerializer(BaseSerializerV1):
         resource_name = "resources-metadata"
 
 
-class FindingSerializer(RLSSerializer):
+class FindingSerializer(FindingRowTriageMixin, RLSSerializer):
     """
     Serializer for the Finding model.
     """
@@ -1694,10 +1699,12 @@ class FindingSerializer(RLSSerializer):
             "muted",
             "muted_reason",
             "url",
+            *FindingRowTriageMixin.TRIAGE_FIELDS,
             # Relationships
             "scan",
             "resources",
         ]
+        list_serializer_class = TriageListSerializer
 
     included_serializers = {
         "scan": ScanIncludeSerializer,
@@ -3445,6 +3452,9 @@ class IntegrationJiraDispatchSerializer(BaseSerializerV1):
 
     project_key = serializers.CharField(required=True)
     issue_type = serializers.CharField(required=True)
+    dispatch_mode = serializers.ChoiceField(
+        choices=["individual", "grouped"], required=False, default="individual"
+    )
 
     class JSONAPIMeta:
         resource_name = "integrations-jira-dispatches"
@@ -3636,7 +3646,14 @@ class SamlMetadataSerializer(BaseSerializerV1):
 class SAMLConfigurationSerializer(RLSSerializer):
     class Meta:
         model = SAMLConfiguration
-        fields = ["id", "email_domain", "metadata_xml", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "email_domain",
+            "additional_email_domains",
+            "metadata_xml",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
@@ -4695,7 +4712,7 @@ class FindingGroupSerializer(BaseSerializerV1):
         resource_name = "finding-groups"
 
 
-class FindingGroupResourceSerializer(BaseSerializerV1):
+class FindingGroupResourceSerializer(FindingIdRowTriageMixin, BaseSerializerV1):
     """
     Serializer for Finding Group Resources - resources within a finding group.
 
@@ -4718,6 +4735,9 @@ class FindingGroupResourceSerializer(BaseSerializerV1):
 
     class JSONAPIMeta:
         resource_name = "finding-group-resources"
+
+    class Meta:
+        list_serializer_class = TriageListSerializer
 
     @extend_schema_field(
         {

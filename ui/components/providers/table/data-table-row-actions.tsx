@@ -364,12 +364,12 @@ export function DataTableRowActions({
   const providerAlias = provider?.attributes.alias ?? null;
   const providerSecretId = provider?.relationships.secret.data?.id ?? null;
   const hasSecret = Boolean(provider?.relationships.secret.data);
-  const isCloudProvider = isCloud() && Boolean(provider);
+  const hasProvider = Boolean(provider);
   // Dynamic providers have no config.yaml baseline, so a Scan Configuration
   // can't apply to them — hide the action entirely.
   const isDynamicProvider = Boolean(provider?.attributes.is_dynamic);
   const canManageScanConfig =
-    isCloudProvider &&
+    hasProvider &&
     !isDynamicProvider &&
     scanConfigStatus === SCAN_CONFIGURATION_LIST_STATUS.AVAILABLE;
   const scheduleProvider: ScanScheduleProvider | undefined = provider
@@ -727,7 +727,7 @@ export function DataTableRowActions({
               onSelect={() => setIsScanConfigOpen(true)}
             />
           )}
-          {isCloudProvider &&
+          {hasProvider &&
             !isDynamicProvider &&
             scanConfigStatus === SCAN_CONFIGURATION_LIST_STATUS.UNAVAILABLE && (
               <ActionDropdownItem

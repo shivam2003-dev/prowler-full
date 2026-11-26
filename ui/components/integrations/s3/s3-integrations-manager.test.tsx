@@ -48,7 +48,7 @@ describe("S3IntegrationsManager", () => {
     useCloudUpgradeStore.getState().closeCloudUpgrade();
   });
 
-  it("offers Prowler Cloud instead of adding an integration on Local Server", async () => {
+  it("opens the add form on Local Server", async () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
     const user = userEvent.setup();
@@ -58,10 +58,9 @@ describe("S3IntegrationsManager", () => {
     await user.click(screen.getByRole("button", { name: /Add Integration/ }));
 
     // Then
-    expect(useCloudUpgradeStore.getState().activeFeature).toBe(
+    expect(useCloudUpgradeStore.getState().activeFeature).not.toBe(
       CLOUD_UPGRADE_FEATURE.AMAZON_S3,
     );
-    expect(screen.queryByText("Add S3 Integration")).not.toBeInTheDocument();
   });
 
   it("opens the add form in Prowler Cloud", async () => {
@@ -100,7 +99,7 @@ describe("S3IntegrationsManager", () => {
     expect(screen.queryByText("Add S3 Integration")).not.toBeInTheDocument();
   });
 
-  it("marks the feature as Cloud only on Local Server", () => {
+  it("shows no Cloud badge on Local Server", () => {
     // Given
     vi.stubEnv("UI_CLOUD_ENABLED", "false");
 
@@ -108,7 +107,7 @@ describe("S3IntegrationsManager", () => {
     render(<S3IntegrationsManager integrations={[]} providers={[]} />);
 
     // Then
-    expect(screen.getByText("Cloud")).toBeVisible();
+    expect(screen.queryByText("Cloud")).not.toBeInTheDocument();
   });
 
   it("keeps existing integrations deletable on Local Server", async () => {

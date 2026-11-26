@@ -37,7 +37,7 @@ export function AppSidebarContent({ onSelect }: AppSidebarContentProps) {
     registryEligible,
     permissions,
   });
-  const showChat = isCloudEnvironment && mode === APP_SIDEBAR_MODE.CHAT;
+  const showChat = mode === APP_SIDEBAR_MODE.CHAT;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -54,10 +54,7 @@ export function AppSidebarContent({ onSelect }: AppSidebarContentProps) {
 
       <div className="shrink-0 space-y-3 px-3 pb-1">
         <LaunchScanAction onSelect={onSelect} />
-        <AppSidebarModeToggle
-          chatEnabled={isCloudEnvironment}
-          onSelect={onSelect}
-        />
+        <AppSidebarModeToggle chatEnabled onSelect={onSelect} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">

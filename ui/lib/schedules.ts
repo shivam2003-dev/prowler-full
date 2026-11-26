@@ -59,12 +59,15 @@ export const scheduleUpdatePayloadSchema = z.object({
  * optional `capability` prop, overriding this default — no billing concept ever
  * leaks into OSS.
  */
+/**
+ * Every deployment serves the full schedules API (`/schedules/{providerId}`,
+ * `/schedules/bulk`), so scheduling is always advanced here. Prowler Cloud's
+ * billing overlay can still pass a stricter capability through `capability`.
+ */
 export function getScanScheduleCapability(
-  isCloud: boolean,
+  _isCloud: boolean,
 ): ScanScheduleCapability {
-  return isCloud
-    ? SCAN_SCHEDULE_CAPABILITY.ADVANCED
-    : SCAN_SCHEDULE_CAPABILITY.DAILY_LEGACY;
+  return SCAN_SCHEDULE_CAPABILITY.ADVANCED;
 }
 
 export function formatScheduleHour(hour: number): string {

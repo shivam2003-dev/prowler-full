@@ -192,6 +192,12 @@ class TestReturnProwlerProvider:
 
 
 class TestInitializeProwlerProvider:
+    @pytest.fixture(autouse=True)
+    def _no_scan_configuration(self):
+        # The providers here are mocks, so skip the Scan Configuration lookup.
+        with patch("api.utils.get_scan_config_content", return_value=None):
+            yield
+
     @patch("api.utils.return_prowler_provider")
     def test_initialize_prowler_provider(self, mock_return_prowler_provider):
         provider = MagicMock()
